@@ -1,4 +1,3 @@
-import "server-only";
 import { createPublicClient, http, getAddress, formatUnits } from "viem";
 import { getChain } from "@/lib/chains";
 import { dataProviderAbi, oracleAbi, poolAbi } from "./abi";
@@ -44,9 +43,9 @@ export async function readBreakdown(
   const user = getAddress(rawAddress);
   const client = createPublicClient({
     chain: cfg.chain,
-    // Env RPC if set, else our pinned public endpoint (viem's chain default is
-    // unreliable for some chains). Bounded timeout so a dead RPC fails fast.
-    transport: http(process.env[cfg.rpcEnv] ?? cfg.defaultRpc, {
+    // Pinned public endpoint (viem's chain default is unreliable for some
+    // chains). Bounded timeout so a dead RPC fails fast.
+    transport: http(cfg.rpc, {
       timeout: 12_000,
     }),
   });

@@ -1,6 +1,120 @@
 @import "tailwindcss";
 
+/* ── "Sounding": a depth-gauge instrument for liquidation risk ──────────── */
+@theme {
+  --color-abyss: #06141b; /* deepest field            */
+  --color-deep: #0c2430; /* raised panel surface     */
+  --color-shelf: #102d3a; /* slightly raised surface  */
+  --color-steel: #1b3a48; /* hairlines / borders      */
+  --color-bone: #e7eeec; /* primary text (dial face) */
+  --color-mist: #7c95a0; /* secondary text           */
+
+  --color-clear: #2fd6ae; /* safe clearance           */
+  --color-shoal: #f0b43c; /* caution                  */
+  --color-reef: #ff5c4d; /* liquidation / danger     */
+
+  --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
 body {
-  background-color: #0a0a0a;
-  color: #ededed;
+  background-color: var(--color-abyss);
+  color: var(--color-bone);
+  font-family: var(--font-sans);
+  /* faint depth gradient — the field reads as deep water, not flat black */
+  background-image: radial-gradient(
+    120% 80% at 50% -10%,
+    #0c2632 0%,
+    #06141b 55%
+  );
+  background-attachment: fixed;
+}
+
+/* Instrument-panel eyebrow: the recurring small-caps label device. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-mist);
+}
+
+/* Range sliders styled as instrument throttles. */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: var(--color-steel);
+  border-radius: 999px;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--color-bone);
+  border: 3px solid var(--color-abyss);
+  box-shadow: 0 0 0 1px var(--color-steel);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--color-bone);
+  border: 3px solid var(--color-abyss);
+}
+input[type="range"]:focus-visible {
+  outline: none;
+}
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-clear) 55%, transparent);
+}
+
+/* Visible keyboard focus, everywhere. */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-clear) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* The reef "wells up" to its depth on load; marker settles onto the water. */
+@keyframes well-up {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.well-up {
+  transform-origin: bottom;
+  animation: well-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.settle {
+  animation: settle 0.5s ease-out 0.25s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .well-up,
+  .settle {
+    animation: none;
+  }
+}
+
+/* Slim instrument scrollbar for the fleet rail. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-steel) transparent;
 }

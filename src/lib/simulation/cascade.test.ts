@@ -6,6 +6,7 @@ import {
   debtLiquidationPrice,
   distanceToLiquidation,
   isStableAsset,
+  liquidationOnset,
   simulateCascade,
   sweepCrash,
   sweepScenario,
@@ -445,6 +446,118 @@ describe("distanceToLiquidation", () => {
       asset({ symbol: "DAI", asset: "0xdai", priceUsd: 1, debtAmount: 10000 }),
     ]);
     expect(distanceToLiquidation(bd).kind).toBe("no-risk");
+  });
+});
+
+describe("liquidationOnset", () => {
+  it("single volatile collateral: the asset's price at the crossing", () => {
+    const o = liquidationOnset(wbtcUsdc());
+    expect(o?.kind).toBe("price");
+    if (o?.kind !== "price") throw new Error("expected price");
+    expect(o.side).toBe("collateral");
+    expect(o.symbol).toBe("WBTC");
+    // 1 WBTC @ $66k, $30k debt, LT 0.78 => HF=1 at $30000/0.78 = $38,461.54.
+    expect(o.price).toBeCloseTo(30000 / 0.78, 2);
+  });
+
+  it("single volatile collateral with stable collateral alongside: price ignores the held-flat stable", () => {
+    // $60k WBTC (volatile, LT 0.78) + $20k USDC collateral (stable, LT 0.85),
+    // $40k DAI debt. WBTC is the only mover, so we report WBTC's price (60000*m),
+    // NOT the total collateral value — the stable $20k props up the aggregate.
+    const bd = breakdown([
+      asset({
+        symbol: "WBTC",
+        asset: "0xwbtc",
+        priceUsd: 60000,
+        collateralAmount: 1,
+        liquidationThreshold: 0.78,
+      }),
+      asset({
+        symbol: "USDC",
+        asset: "0xusdc",
+        priceUsd: 1,
+        collateralAmount: 20000,
+        liquidationThreshold: 0.85,
+      }),
+      asset({ symbol: "DAI", asset: "0xdai", priceUsd: 1, debtAmount: 40000 }),
+    ]);
+    const o = liquidationOnset(bd);
+    if (o?.kind !== "price") throw new Error("expected price");
+    expect(o.symbol).toBe("WBTC");
+    expect(o.price).toBeCloseTo(29487.18, 1);
+  });
+
+  it("several volatile collateral assets: falls back to total collateral value at the crossing", () => {
+    // WBTC + WETH both volatile collateral, $40k USDC debt. No single price.
+    const bd = breakdown([
+      asset({
+        symbol: "WBTC",
+        asset: "0xwbtc",
+        priceUsd: 60000,
+        collateralAmount: 1, // $60k
+        liquidationThreshold: 0.78,
+      }),
+      asset({
+        symbol: "WETH",
+        asset: "0xweth",
+        priceUsd: 3000,
+        collateralAmount: 10, // $30k
+        liquidationThreshold: 0.8,
+      }),
+      asset({
+        symbol: "USDC",
+        asset: "0xusdc",
+        priceUsd: 1,
+        debtAmount: 40000,
+      }),
+    ]);
+    const o = liquidationOnset(bd);
+    expect(o?.kind).toBe("value");
+    if (o?.kind !== "value") throw new Error("expected value");
+    expect(o.side).toBe("collateral");
+    // Scaling both volatile collaterals by m to HF=1: weighted LT = 40000.
+    // (60000*0.78 + 30000*0.8)*m = 40000 => m = 40000/70800; value = 90000*m.
+    expect(o.usd).toBeCloseTo((90000 * 40000) / 70800, 1);
+  });
+
+  it("single volatile debt: the debt asset's price at the crossing", () => {
+    // $100k USDC collateral (LT 0.85), $60k ETH debt @ $3000 — HF=1 at $85k debt
+    // => ETH price 85000/20 = $4,250.
+    const bd = breakdown([
+      asset({
+        symbol: "USDC",
+        asset: "0xusdc",
+        priceUsd: 1,
+        collateralAmount: 100000,
+        liquidationThreshold: 0.85,
+      }),
+      asset({
+        symbol: "WETH",
+        asset: "0xweth",
+        priceUsd: 3000,
+        debtAmount: 20,
+        liquidationThreshold: 0,
+      }),
+    ]);
+    const o = liquidationOnset(bd);
+    expect(o?.kind).toBe("price");
+    if (o?.kind !== "price") throw new Error("expected price");
+    expect(o.side).toBe("debt");
+    expect(o.symbol).toBe("WETH");
+    expect(o.price).toBeCloseTo(4250, 2);
+  });
+
+  it("no reachable liquidation: null", () => {
+    const noDebt = breakdown([
+      asset({
+        symbol: "WBTC",
+        asset: "0xwbtc",
+        priceUsd: 66000,
+        collateralAmount: 1,
+        liquidationThreshold: 0.78,
+      }),
+    ]);
+    expect(liquidationOnset(noDebt)).toBeNull();
   });
 });
 

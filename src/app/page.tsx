@@ -26,10 +26,10 @@ const usd = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
 function healthColor(hf: number | null): string {
-  if (hf == null) return "text-neutral-400";
-  if (hf < 1.1) return "text-red-400";
-  if (hf < 1.5) return "text-amber-400";
-  return "text-green-400";
+  if (hf == null) return "text-mist";
+  if (hf < 1.1) return "text-reef";
+  if (hf < 1.5) return "text-shoal";
+  return "text-clear";
 }
 
 export default function Home() {
@@ -112,69 +112,101 @@ export default function Home() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-12">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold">aavestats</h1>
-        <p className="text-sm text-neutral-400">
-          Watch Aave v3 positions and simulate liquidation scenarios.
-        </p>
+    <div className="mx-auto max-w-6xl px-5 py-8 sm:px-8 sm:py-12">
+      <header className="mb-8 flex items-end justify-between gap-4 border-b border-steel pb-5">
+        <div>
+          <h1 className="font-mono text-xl font-semibold tracking-tight">
+            aavestats
+          </h1>
+          <p className="mt-1 text-sm text-mist">
+            Sound an Aave v3 position&apos;s distance to liquidation.
+          </p>
+        </div>
+        <div className="eyebrow hidden text-right leading-relaxed sm:block">
+          Aave Oracle prices
+          <br />
+          live on-chain reads
+        </div>
       </header>
 
-      <Watchlist
-        entries={entries}
-        summaries={summaries}
-        selectedKey={selected ? watchKey(selected) : null}
-        onAdd={add}
-        onSelect={select}
-        onRemove={remove}
-      />
+      <div className="grid gap-8 lg:grid-cols-[19rem_1fr]">
+        <aside className="lg:sticky lg:top-8 lg:self-start">
+          <Watchlist
+            entries={entries}
+            summaries={summaries}
+            selectedKey={selected ? watchKey(selected) : null}
+            onAdd={add}
+            onSelect={select}
+            onRemove={remove}
+          />
+        </aside>
 
-      <div className="mt-10">
-        {detailLoading && <p className="text-neutral-400">Reading position…</p>}
-        {detailError && (
-          <p className="rounded border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300">
-            {detailError}
-          </p>
-        )}
-        {breakdown && (
-          <section className="space-y-8">
-            {fetchedAt && (
-              <div className="flex justify-end">
-                <Freshness
-                  fetchedAt={fetchedAt}
-                  onRefresh={refresh}
-                  refreshing={refreshing}
+        <main className="min-w-0">
+          {detailLoading && <p className="text-mist">Taking a sounding…</p>}
+          {detailError && (
+            <p className="rounded-lg border border-reef/40 bg-reef/10 px-4 py-3 text-sm text-reef">
+              {detailError}
+            </p>
+          )}
+          {!detailLoading && !detailError && !breakdown && (
+            <EmptyState hasEntries={entries.length > 0} />
+          )}
+          {breakdown && (
+            <section className="space-y-8">
+              {fetchedAt && (
+                <div className="flex justify-end">
+                  <Freshness
+                    fetchedAt={fetchedAt}
+                    onRefresh={refresh}
+                    refreshing={refreshing}
+                  />
+                </div>
+              )}
+              <Hero breakdown={breakdown} />
+
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-steel bg-steel sm:grid-cols-4">
+                <Stat
+                  label="Collateral"
+                  value={usd(breakdown.position.totalCollateralUsd)}
+                />
+                <Stat
+                  label="Debt"
+                  value={usd(breakdown.position.totalDebtUsd)}
+                />
+                <Stat
+                  label="Liq. threshold"
+                  value={`${(breakdown.position.liquidationThreshold * 100).toFixed(1)}%`}
+                />
+                <Stat
+                  label="Health factor"
+                  value={
+                    breakdown.position.healthFactor != null
+                      ? breakdown.position.healthFactor.toFixed(3)
+                      : "∞"
+                  }
+                  className={healthColor(breakdown.position.healthFactor)}
                 />
               </div>
-            )}
-            <Hero breakdown={breakdown} />
 
-            <div className="grid grid-cols-2 gap-4 rounded-lg border border-neutral-800 p-4 sm:grid-cols-4">
-              <Stat
-                label="Collateral"
-                value={usd(breakdown.position.totalCollateralUsd)}
-              />
-              <Stat label="Debt" value={usd(breakdown.position.totalDebtUsd)} />
-              <Stat
-                label="Liq. threshold"
-                value={`${(breakdown.position.liquidationThreshold * 100).toFixed(1)}%`}
-              />
-              <Stat
-                label="Health factor"
-                value={
-                  breakdown.position.healthFactor != null
-                    ? breakdown.position.healthFactor.toFixed(3)
-                    : "∞"
-                }
-                className={healthColor(breakdown.position.healthFactor)}
-              />
-            </div>
-
-            <CascadePanel breakdown={breakdown} />
-          </section>
-        )}
+              <CascadePanel breakdown={breakdown} />
+            </section>
+          )}
+        </main>
       </div>
-    </main>
+    </div>
+  );
+}
+
+function EmptyState({ hasEntries }: { hasEntries: boolean }) {
+  return (
+    <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-steel px-6 py-16 text-center">
+      <div className="font-mono text-3xl text-steel">≈≈≈</div>
+      <p className="mt-4 max-w-xs text-sm text-mist">
+        {hasEntries
+          ? "Select a watched address to take a sounding."
+          : "Add a watched address to take a sounding of its distance to liquidation."}
+      </p>
+    </div>
   );
 }
 
@@ -205,12 +237,12 @@ function Freshness({
   }, []);
 
   return (
-    <div className="flex items-center gap-3 text-xs text-neutral-500">
+    <div className="flex items-center gap-3 text-xs text-mist">
       <span>Updated {relativeTime(Math.max(0, now - fetchedAt))}</span>
       <button
         onClick={onRefresh}
         disabled={refreshing}
-        className="rounded border border-neutral-700 px-2 py-1 text-neutral-300 hover:bg-neutral-900 disabled:opacity-40"
+        className="rounded-md border border-steel px-2.5 py-1 text-bone transition-colors hover:bg-shelf disabled:opacity-40"
       >
         {refreshing ? "Refreshing…" : "Refresh"}
       </button>
@@ -228,11 +260,11 @@ function Stat({
   className?: string;
 }) {
   return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-neutral-500">
-        {label}
+    <div className="bg-abyss px-4 py-3.5">
+      <div className="eyebrow">{label}</div>
+      <div className={`mt-1.5 font-mono text-lg ${className ?? "text-bone"}`}>
+        {value}
       </div>
-      <div className={`mt-1 font-mono text-lg ${className ?? ""}`}>{value}</div>
     </div>
   );
 }

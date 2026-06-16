@@ -44,7 +44,11 @@ export async function readBreakdown(
   const user = getAddress(rawAddress);
   const client = createPublicClient({
     chain: cfg.chain,
-    transport: http(process.env[cfg.rpcEnv]),
+    // Env RPC if set, else our pinned public endpoint (viem's chain default is
+    // unreliable for some chains). Bounded timeout so a dead RPC fails fast.
+    transport: http(process.env[cfg.rpcEnv] ?? cfg.defaultRpc, {
+      timeout: 12_000,
+    }),
   });
 
   const [position, tokens, eMode] = await Promise.all([
@@ -61,6 +65,19 @@ export async function readBreakdown(
       args: [user],
     }),
   ]);
+
+  // Nothing on Aave for this address/chain (also covers non-existent wallets):
+  // getUserAccountData reports zero collateral and zero debt. Skip the per-asset
+  // multicall and oracle reads — they scan every reserve and, on a slow or
+  // rate-limited public RPC, are what make an empty wallet appear to hang.
+  if (position.totalCollateralUsd === 0 && position.totalDebtUsd === 0) {
+    return {
+      position,
+      assets: [],
+      eModeCategory: Number(eMode),
+      reconciles: true,
+    };
+  }
 
   const tokenAddrs = tokens.map((t) => t.tokenAddress);
 

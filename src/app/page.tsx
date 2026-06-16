@@ -151,49 +151,92 @@ export default function Home() {
           {!detailLoading && !detailError && !breakdown && (
             <EmptyState hasEntries={entries.length > 0} />
           )}
-          {breakdown && (
-            <section className="space-y-8">
-              {fetchedAt && (
-                <div className="flex justify-end">
-                  <Freshness
-                    fetchedAt={fetchedAt}
-                    onRefresh={refresh}
-                    refreshing={refreshing}
+          {breakdown &&
+            breakdown.position.totalCollateralUsd === 0 &&
+            breakdown.position.totalDebtUsd === 0 && (
+              <NoPositions
+                onRefresh={refresh}
+                refreshing={refreshing}
+                fetchedAt={fetchedAt}
+              />
+            )}
+          {breakdown &&
+            (breakdown.position.totalCollateralUsd > 0 ||
+              breakdown.position.totalDebtUsd > 0) && (
+              <section className="space-y-8">
+                {fetchedAt && (
+                  <div className="flex justify-end">
+                    <Freshness
+                      fetchedAt={fetchedAt}
+                      onRefresh={refresh}
+                      refreshing={refreshing}
+                    />
+                  </div>
+                )}
+                <Hero breakdown={breakdown} />
+
+                <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-steel bg-steel sm:grid-cols-4">
+                  <Stat
+                    label="Collateral"
+                    value={usd(breakdown.position.totalCollateralUsd)}
+                  />
+                  <Stat
+                    label="Debt"
+                    value={usd(breakdown.position.totalDebtUsd)}
+                  />
+                  <Stat
+                    label="Liq. threshold"
+                    value={`${(breakdown.position.liquidationThreshold * 100).toFixed(1)}%`}
+                  />
+                  <Stat
+                    label="Health factor"
+                    value={
+                      breakdown.position.healthFactor != null
+                        ? breakdown.position.healthFactor.toFixed(3)
+                        : "∞"
+                    }
+                    className={healthColor(breakdown.position.healthFactor)}
                   />
                 </div>
-              )}
-              <Hero breakdown={breakdown} />
 
-              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-steel bg-steel sm:grid-cols-4">
-                <Stat
-                  label="Collateral"
-                  value={usd(breakdown.position.totalCollateralUsd)}
-                />
-                <Stat
-                  label="Debt"
-                  value={usd(breakdown.position.totalDebtUsd)}
-                />
-                <Stat
-                  label="Liq. threshold"
-                  value={`${(breakdown.position.liquidationThreshold * 100).toFixed(1)}%`}
-                />
-                <Stat
-                  label="Health factor"
-                  value={
-                    breakdown.position.healthFactor != null
-                      ? breakdown.position.healthFactor.toFixed(3)
-                      : "∞"
-                  }
-                  className={healthColor(breakdown.position.healthFactor)}
-                />
-              </div>
-
-              <CascadePanel breakdown={breakdown} />
-            </section>
-          )}
+                <CascadePanel breakdown={breakdown} />
+              </section>
+            )}
         </main>
       </div>
     </div>
+  );
+}
+
+function NoPositions({
+  onRefresh,
+  refreshing,
+  fetchedAt,
+}: {
+  onRefresh: () => void;
+  refreshing: boolean;
+  fetchedAt: number | null;
+}) {
+  return (
+    <section className="space-y-6">
+      {fetchedAt && (
+        <div className="flex justify-end">
+          <Freshness
+            fetchedAt={fetchedAt}
+            onRefresh={onRefresh}
+            refreshing={refreshing}
+          />
+        </div>
+      )}
+      <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-steel px-6 py-16 text-center">
+        <div className="font-mono text-3xl text-steel">∅</div>
+        <p className="mt-4 font-medium text-bone">No Aave positions here</p>
+        <p className="mt-2 max-w-xs text-sm text-mist">
+          This address has no collateral or debt on Aave v3 on the selected
+          network. There&apos;s nothing to liquidate.
+        </p>
+      </div>
+    </section>
   );
 }
 

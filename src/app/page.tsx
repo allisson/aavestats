@@ -10,6 +10,7 @@ import {
 import type { PositionBreakdown } from "@/lib/aave/breakdown";
 import { fetchBreakdown, fetchSummary, type SummaryResult } from "./actions";
 import { CascadePanel } from "@/components/CascadePanel";
+import { Hero } from "@/components/Hero";
 import { Watchlist } from "@/components/Watchlist";
 import {
   addWatch,
@@ -146,6 +147,8 @@ export default function Home() {
                 />
               </div>
             )}
+            <Hero breakdown={breakdown} />
+
             <div className="grid grid-cols-2 gap-4 rounded-lg border border-neutral-800 p-4 sm:grid-cols-4">
               <Stat
                 label="Collateral"

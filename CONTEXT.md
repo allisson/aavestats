@@ -59,3 +59,27 @@ math and must be read on-chain.
 A wallet address the user has entered to view its Position. Read-only — the app
 never connects a wallet or signs transactions.
 _Avoid_: account, user, wallet (in the connected-wallet sense)
+
+**Volatile / Stable asset**:
+A classification of each Position asset by whether its Aave Oracle price tracks a
+peg. **Stable** assets are treated as holding their price in a Scenario; **volatile**
+assets are the ones assumed to move. The distinction drives the default Scenario:
+volatile Collateral falls together (stables held flat), or volatile Debt rises
+together. A depegged stablecoin reads as volatile.
+_Avoid_: stablecoin (an asset can be a stablecoin yet read as volatile if depegged)
+
+**Distance to Liquidation**:
+The smallest single-direction price move that would bring a Position's Health
+Factor to 1 — either volatile Collateral falling together by some percentage, or
+volatile Debt rising together by some percentage, whichever is the smaller move.
+The headline answer the app exists to give. Undefined when the Position has no
+Debt (cannot be liquidated) or is already at or below Health Factor 1 (eligible
+now).
+_Avoid_: liquidation distance, margin, buffer
+
+**Crash Severity**:
+The single axis of the default Scenario — the percentage of the binding move
+(volatile Collateral falling, or volatile Debt rising) applied uniformly. At the
+Crash Severity equal to the Distance to Liquidation, Health Factor reaches 1 and
+the Liquidation cascade begins.
+_Avoid_: intensity, time (the axis is a price move, never elapsed time)

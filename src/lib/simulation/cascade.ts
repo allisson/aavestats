@@ -256,3 +256,162 @@ export function debtLiquidationPrice(
   if (m <= 1) return "already";
   return { price: d.priceUsd * m, riseFraction: m - 1 };
 }
+
+/** Peg band: an asset whose Aave Oracle price is within this of $1 reads as stable. */
+const STABLE_PEG_BAND = 0.05;
+
+/**
+ * Whether an asset's Aave Oracle price tracks a ~$1 peg. Stable assets are held
+ * flat in the default Scenario; volatile assets are the ones assumed to move. A
+ * depegged stablecoin (price outside the band) correctly reads as volatile. See
+ * docs/adr/0004.
+ */
+export function isStableAsset(a: AssetPosition): boolean {
+  return Math.abs(a.priceUsd - 1) <= STABLE_PEG_BAND;
+}
+
+/**
+ * The price multiplier `m`, applied to every asset in `scaled` (all other prices
+ * held flat), that brings the health factor to exactly 1, plus the `net`
+ * liquidation-threshold-minus-debt contribution of that set. `net` carries the
+ * sign that tells the caller which direction (fall vs rise) the crossing lies in.
+ * Returns null when scaling the set has no effect on the health factor.
+ */
+function uniformMoveToHfOne(
+  breakdown: PositionBreakdown,
+  scaled: Set<string>,
+): { m: number; net: number } | null {
+  let ltScaled = 0;
+  let debtScaled = 0;
+  let ltOthers = 0;
+  let debtOthers = 0;
+  for (const a of breakdown.assets) {
+    const lt = a.collateralUsd * a.liquidationThreshold;
+    if (scaled.has(a.asset)) {
+      ltScaled += lt;
+      debtScaled += a.debtUsd;
+    } else {
+      ltOthers += lt;
+      debtOthers += a.debtUsd;
+    }
+  }
+  // HF(m) = (m*ltScaled + ltOthers) / (m*debtScaled + debtOthers) = 1
+  //   => m*(ltScaled - debtScaled) = debtOthers - ltOthers
+  const net = ltScaled - debtScaled;
+  if (net === 0) return null;
+  return { m: (debtOthers - ltOthers) / net, net };
+}
+
+export type DistanceToLiquidation =
+  | { kind: "collateral-fall"; dropFraction: number }
+  | { kind: "debt-rise"; riseFraction: number }
+  | { kind: "eligible-now" } // health factor is already at or below 1
+  | { kind: "no-debt" } // nothing to liquidate
+  | { kind: "no-risk" }; // no volatile move can bring the health factor to 1
+
+/**
+ * The headline "distance to liquidation": the smallest single-direction price
+ * move that brings the Position's health factor to 1 — volatile collateral
+ * falling together, or volatile debt rising together, whichever needs the smaller
+ * move. See docs/adr/0004.
+ */
+export function distanceToLiquidation(
+  breakdown: PositionBreakdown,
+): DistanceToLiquidation {
+  const totalDebt = breakdown.assets.reduce((s, a) => s + a.debtUsd, 0);
+  if (totalDebt <= 0) return { kind: "no-debt" };
+
+  const weightedLt = breakdown.assets.reduce(
+    (s, a) => s + a.collateralUsd * a.liquidationThreshold,
+    0,
+  );
+  if (weightedLt / totalDebt <= 1) return { kind: "eligible-now" };
+
+  // Volatile collateral falling together (m in (0,1)); only a positive net
+  // contribution degrades the health factor as the price falls.
+  const volColl = new Set(
+    breakdown.assets
+      .filter((a) => a.collateralUsd > 0 && !isStableAsset(a))
+      .map((a) => a.asset),
+  );
+  let dropFraction: number | null = null;
+  if (volColl.size > 0) {
+    const c = uniformMoveToHfOne(breakdown, volColl);
+    if (c && c.net > 0 && c.m > 0 && c.m < 1) dropFraction = 1 - c.m;
+  }
+
+  // Volatile debt rising together (m > 1); only a negative net contribution
+  // degrades the health factor as the price rises.
+  const volDebt = new Set(
+    breakdown.assets
+      .filter((a) => a.debtUsd > 0 && !isStableAsset(a))
+      .map((a) => a.asset),
+  );
+  let riseFraction: number | null = null;
+  if (volDebt.size > 0) {
+    const d = uniformMoveToHfOne(breakdown, volDebt);
+    if (d && d.net < 0 && d.m > 1) riseFraction = d.m - 1;
+  }
+
+  if (dropFraction == null && riseFraction == null) return { kind: "no-risk" };
+  if (riseFraction == null)
+    return { kind: "collateral-fall", dropFraction: dropFraction! };
+  if (dropFraction == null) return { kind: "debt-rise", riseFraction };
+  // Both directions can trigger — the binding one needs the smaller move.
+  return dropFraction <= riseFraction
+    ? { kind: "collateral-fall", dropFraction }
+    : { kind: "debt-rise", riseFraction };
+}
+
+/** The set of volatile asset addresses that move along the binding direction. */
+export function bindingMoveAssets(
+  breakdown: PositionBreakdown,
+  direction: "collateral-fall" | "debt-rise",
+): string[] {
+  return breakdown.assets
+    .filter((a) =>
+      direction === "collateral-fall"
+        ? a.collateralUsd > 0 && !isStableAsset(a)
+        : a.debtUsd > 0 && !isStableAsset(a),
+    )
+    .map((a) => a.asset);
+}
+
+export type CrashSweepPoint = {
+  /** The binding move applied so far, as a percentage (collateral fall or debt rise). */
+  movePct: number;
+  healthFactorBefore: number | null;
+  liquidations: number;
+};
+
+/**
+ * Ramp a single binding move — every asset in `assets` falling (collateral) or
+ * rising (debt) together — from today's prices up to `maxPct`, running the full
+ * cascade at each step. Drives the default Scenario chart, whose x-axis is the
+ * Crash Severity (the actual price move), so its health-factor-hits-1 crossing
+ * equals the Distance to Liquidation headline.
+ */
+export function sweepCrash(
+  breakdown: PositionBreakdown,
+  assets: string[],
+  direction: "collateral-fall" | "debt-rise",
+  maxPct: number,
+  steps = 45,
+): CrashSweepPoint[] {
+  const set = new Set(assets);
+  const points: CrashSweepPoint[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const movePct = (i / steps) * maxPct;
+    const m =
+      direction === "collateral-fall" ? 1 - movePct / 100 : 1 + movePct / 100;
+    const shocks: PriceShocks = {};
+    for (const a of breakdown.assets) if (set.has(a.asset)) shocks[a.asset] = m;
+    const result = simulateCascade(breakdown, shocks);
+    points.push({
+      movePct: Math.round(movePct * 10) / 10,
+      healthFactorBefore: result.healthFactorBefore,
+      liquidations: result.events.length,
+    });
+  }
+  return points;
+}

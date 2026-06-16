@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { AssetPosition, PositionBreakdown } from "@/lib/aave/breakdown";
 import {
   assetLiquidationPrice,
+  bindingMoveAssets,
   debtLiquidationPrice,
+  distanceToLiquidation,
+  isStableAsset,
   simulateCascade,
+  sweepCrash,
   sweepScenario,
 } from "./cascade";
 
@@ -300,6 +304,174 @@ describe("debtLiquidationPrice", () => {
       asset({ symbol: "USDC", asset: "0xusdc", priceUsd: 1, debtAmount: 5000 }),
     ]);
     expect(debtLiquidationPrice(both, "0xweth")).toBe("safe-alone");
+  });
+});
+
+describe("isStableAsset", () => {
+  it("treats prices within ~$1 of peg as stable, others as volatile", () => {
+    const a = (priceUsd: number) =>
+      asset({ symbol: "X", asset: "0xx", priceUsd });
+    expect(isStableAsset(a(1))).toBe(true);
+    expect(isStableAsset(a(0.97))).toBe(true);
+    expect(isStableAsset(a(1.04))).toBe(true);
+    expect(isStableAsset(a(0.9))).toBe(false); // depegged stable reads volatile
+    expect(isStableAsset(a(3000))).toBe(false);
+  });
+});
+
+describe("distanceToLiquidation", () => {
+  it("single volatile collateral, stable debt: collateral-fall, matches the per-asset price", () => {
+    const d = distanceToLiquidation(wbtcUsdc());
+    expect(d.kind).toBe("collateral-fall");
+    if (d.kind !== "collateral-fall")
+      throw new Error("expected collateral-fall");
+    // Same crossing as the single-asset readout (USDC is stable, held flat).
+    expect(d.dropFraction).toBeCloseTo(0.4172, 4);
+  });
+
+  it("stable collateral, volatile debt: binds on debt-rise", () => {
+    // $100k USDC collateral (LT 0.85), $60k ETH debt @ $3000.
+    const bd = breakdown([
+      asset({
+        symbol: "USDC",
+        asset: "0xusdc",
+        priceUsd: 1,
+        collateralAmount: 100000,
+        liquidationThreshold: 0.85,
+      }),
+      asset({
+        symbol: "WETH",
+        asset: "0xweth",
+        priceUsd: 3000,
+        debtAmount: 20, // $60k
+        liquidationThreshold: 0,
+      }),
+    ]);
+    const d = distanceToLiquidation(bd);
+    expect(d.kind).toBe("debt-rise");
+    if (d.kind !== "debt-rise") throw new Error("expected debt-rise");
+    // HF=1 when ETH debt value = 85000 => rise of 85000/60000 - 1.
+    expect(d.riseFraction).toBeCloseTo(85000 / 60000 - 1, 4);
+
+    // Cross-check against the engine: rising volatile debt by that fraction puts
+    // the pre-liquidation health factor at exactly 1.
+    const m = 1 + d.riseFraction;
+    const hf = simulateCascade(bd, { "0xweth": m }).healthFactorBefore;
+    expect(hf).toBeCloseTo(1, 6);
+  });
+
+  it("both directions possible: picks the smaller move and the engine confirms HF=1", () => {
+    // WBTC collateral (volatile) + WETH debt (volatile), stable USDC debt too.
+    const bd = breakdown([
+      asset({
+        symbol: "WBTC",
+        asset: "0xwbtc",
+        priceUsd: 60000,
+        collateralAmount: 1, // $60k
+        liquidationThreshold: 0.75,
+      }),
+      asset({
+        symbol: "WETH",
+        asset: "0xweth",
+        priceUsd: 3000,
+        debtAmount: 7, // $21k volatile debt
+        liquidationThreshold: 0,
+      }),
+      asset({
+        symbol: "USDC",
+        asset: "0xusdc",
+        priceUsd: 1,
+        debtAmount: 15000,
+      }),
+    ]);
+    const d = distanceToLiquidation(bd);
+    expect(["collateral-fall", "debt-rise"]).toContain(d.kind);
+    const move =
+      d.kind === "collateral-fall"
+        ? d.dropFraction
+        : d.kind === "debt-rise"
+          ? d.riseFraction
+          : NaN;
+    // Confirm the chosen move actually reaches HF=1.
+    const shocks: Record<string, number> =
+      d.kind === "collateral-fall"
+        ? { "0xwbtc": 1 - move }
+        : { "0xweth": 1 + move };
+    expect(simulateCascade(bd, shocks).healthFactorBefore).toBeCloseTo(1, 4);
+  });
+
+  it("no debt: cannot be liquidated", () => {
+    const bd = breakdown([
+      asset({
+        symbol: "WBTC",
+        asset: "0xwbtc",
+        priceUsd: 66000,
+        collateralAmount: 1,
+        liquidationThreshold: 0.78,
+      }),
+    ]);
+    expect(distanceToLiquidation(bd).kind).toBe("no-debt");
+  });
+
+  it("already underwater: eligible-now", () => {
+    const bd = breakdown([
+      asset({
+        symbol: "WBTC",
+        asset: "0xwbtc",
+        priceUsd: 20000,
+        collateralAmount: 1, // $20k * 0.78 = 15600 weighted
+        liquidationThreshold: 0.78,
+      }),
+      asset({
+        symbol: "USDC",
+        asset: "0xusdc",
+        priceUsd: 1,
+        debtAmount: 18000,
+      }),
+    ]);
+    expect(distanceToLiquidation(bd).kind).toBe("eligible-now");
+  });
+
+  it("all-stable position with no triggering move: no-risk", () => {
+    // USDC collateral, DAI debt, both pegged — no volatile asset to move.
+    const bd = breakdown([
+      asset({
+        symbol: "USDC",
+        asset: "0xusdc",
+        priceUsd: 1,
+        collateralAmount: 20000,
+        liquidationThreshold: 0.85,
+      }),
+      asset({ symbol: "DAI", asset: "0xdai", priceUsd: 1, debtAmount: 10000 }),
+    ]);
+    expect(distanceToLiquidation(bd).kind).toBe("no-risk");
+  });
+});
+
+describe("bindingMoveAssets / sweepCrash", () => {
+  it("lists the volatile assets in the binding direction", () => {
+    expect(bindingMoveAssets(wbtcUsdc(), "collateral-fall")).toEqual([
+      "0xwbtc",
+    ]);
+    expect(bindingMoveAssets(wbtcUsdc(), "debt-rise")).toEqual([]); // USDC debt is stable
+  });
+
+  it("ramps a collateral fall and crosses HF=1 at the distance-to-liquidation", () => {
+    const bd = wbtcUsdc();
+    const points = sweepCrash(bd, ["0xwbtc"], "collateral-fall", 60, 60);
+    expect(points[0].movePct).toBe(0);
+    expect(points[0].healthFactorBefore).toBeCloseTo(1.716, 3);
+    // monotonically non-increasing pre-liquidation HF as the fall deepens
+    for (let i = 1; i < points.length; i++) {
+      expect(points[i].healthFactorBefore!).toBeLessThanOrEqual(
+        points[i - 1].healthFactorBefore! + 1e-9,
+      );
+    }
+    // crossing near the ~41.7% trigger
+    const crossing = points.find((p) => p.healthFactorBefore! < 1)!;
+    expect(crossing.movePct).toBeGreaterThanOrEqual(41);
+    expect(crossing.movePct).toBeLessThanOrEqual(43);
+    expect(points.some((p) => p.liquidations > 0)).toBe(true);
   });
 });
 

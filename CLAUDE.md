@@ -112,4 +112,15 @@ indicator and a Refresh button (data is never cached server-side, per ADR 0001).
 
 ### Known gaps / next
 
-- Not modeled: isolation mode, and v3.1's small-position 100%-close-factor rule.
+- **Isolation mode** and **siloed borrowing** are not modeled as distinct modes,
+  but they fail safe rather than mis-pricing silently: the per-asset cascade is
+  driven by each reserve's on-chain `usageAsCollateralEnabled` flag, and if the
+  reconstruction diverges from `getUserAccountData` (`reconcile`), `reconciles`
+  goes false and the UI shows the amber warning (`CascadePanel.tsx`). The
+  aggregate summary (read from Aave directly) is always accurate regardless.
+- The cascade applies Aave v3.1's **small-position close-factor rule** (`cascade.ts`,
+  `MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD` = $2000): the 50% close factor only applies
+  when the repaid debt and seized collateral reserves are each ≥ $2000 and HF > 0.95;
+  otherwise the full reserve debt is liquidatable. The related `MIN_LEFTOVER_BASE`
+  _revert_ (forbidding dust leftovers) is not modeled — the cascade approximates the
+  liquidator per ADR 0003, so this only affects edge cases near the threshold.

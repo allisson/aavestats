@@ -231,9 +231,11 @@ export function CascadePanel({ breakdown }: { breakdown: PositionBreakdown }) {
                     note={
                       liq === "already"
                         ? "Already at liquidation level"
-                        : liq
-                          ? `Liquidates at ${price(liq.price)} (+${(liq.riseFraction * 100).toFixed(0)}%) if it rises alone`
-                          : ""
+                        : liq === "safe-alone"
+                          ? "Won't trigger liquidation rising alone"
+                          : liq
+                            ? `Liquidates at ${price(liq.price)} (+${(liq.riseFraction * 100).toFixed(0)}%) if it rises alone`
+                            : ""
                     }
                   />
                 );

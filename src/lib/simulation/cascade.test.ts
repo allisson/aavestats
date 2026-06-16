@@ -92,6 +92,60 @@ describe("simulateCascade", () => {
     expect(r.finalHealthFactor).toBeNull(); // no debt left
   });
 
+  it("small position (< $2000 reserve): 100% close factor even with HF in [0.95,1)", () => {
+    // WBTC collateral $1650, USDC debt $1200 — both below the $2000 threshold.
+    // Aave v3.1 raises the close factor to 100% for such small positions, so a
+    // single liquidation clears the whole debt rather than just half.
+    const bd = breakdown([
+      asset({
+        symbol: "WBTC",
+        asset: "0xwbtc",
+        priceUsd: 66000,
+        collateralAmount: 0.025, // $1650
+        liquidationThreshold: 0.78,
+        liquidationBonus: 0.07,
+      }),
+      asset({ symbol: "USDC", asset: "0xusdc", priceUsd: 1, debtAmount: 1200 }),
+    ]);
+    const r = simulateCascade(bd, { "0xwbtc": 0.92 });
+    expect(r.healthFactorBefore).toBeGreaterThan(0.95);
+    expect(r.healthFactorBefore).toBeLessThan(1); // would be 50% if it weren't small
+    expect(r.events).toHaveLength(1);
+    expect(r.events[0].closeFactor).toBe(1);
+    expect(r.events[0].debtRepaidUsd).toBeCloseTo(1200, 0); // whole debt, not half
+    expect(r.finalDebtUsd).toBeCloseTo(0, 6);
+  });
+
+  it("multi-debt 50% close factor caps at half of TOTAL debt, not half the reserve", () => {
+    // Regression guard for the Aave v3.1 close-factor rule (LiquidationLogic):
+    //   maxLiquidatableDebt = min(borrowerReserveDebt, 50% of the position's TOTAL debt)
+    // when the reserve's collateral and debt are each >= $2000 and HF > 0.95.
+    // It is 50% of *total* debt (capped by the reserve), NOT 50% of the reserve —
+    // the older v3.0 "half the reserve" reading is wrong and must not be reintroduced.
+    //
+    // WBTC $20k collateral (LT 0.78); USDC $6k + DAI $4k debt = $10k total. WBTC -37%.
+    const bd = breakdown([
+      asset({
+        symbol: "WBTC",
+        asset: "0xwbtc",
+        priceUsd: 50000,
+        collateralAmount: 0.4, // $20,000
+        liquidationThreshold: 0.78,
+        liquidationBonus: 0.07,
+      }),
+      asset({ symbol: "USDC", asset: "0xusdc", priceUsd: 1, debtAmount: 6000 }),
+      asset({ symbol: "DAI", asset: "0xdai", priceUsd: 1, debtAmount: 4000 }),
+    ]);
+    const r = simulateCascade(bd, { "0xwbtc": 0.63 }); // collateral $12,600
+    expect(r.healthFactorBefore).toBeCloseTo(0.9828, 3); // in [0.95, 1)
+    expect(r.events).toHaveLength(1);
+    expect(r.events[0].debtSymbol).toBe("USDC"); // largest debt reserve
+    expect(r.events[0].closeFactor).toBe(0.5);
+    // 50% of TOTAL ($5000), not 50% of the $6k USDC reserve ($3000).
+    expect(r.events[0].debtRepaidUsd).toBeCloseTo(5000, 0);
+    expect(r.finalDebtUsd).toBeCloseTo(5000, 0);
+  });
+
   it("detects bad debt when collateral is exhausted with debt remaining", () => {
     // WETH $226 collateral (LT 0.84), USDC $126 debt; WETH -50%.
     const bd = breakdown([
@@ -230,6 +284,23 @@ describe("debtLiquidationPrice", () => {
   it("returns null with no collateral or for a non-debt asset", () => {
     expect(debtLiquidationPrice(bd(10), "0xwbtc")).toBeNull(); // collateral-only
   });
+
+  it("returns 'safe-alone' when a debt asset's own collateral outweighs its debt", () => {
+    // WETH is both heavy collateral and light debt: as WETH rises its backing
+    // grows faster than its debt, so it can never liquidate on its own.
+    const both = breakdown([
+      asset({
+        symbol: "WETH",
+        asset: "0xweth",
+        priceUsd: 3000,
+        collateralAmount: 10,
+        debtAmount: 1,
+        liquidationThreshold: 0.8,
+      }),
+      asset({ symbol: "USDC", asset: "0xusdc", priceUsd: 1, debtAmount: 5000 }),
+    ]);
+    expect(debtLiquidationPrice(both, "0xweth")).toBe("safe-alone");
+  });
 });
 
 describe("assetLiquidationPrice", () => {
@@ -286,6 +357,73 @@ describe("assetLiquidationPrice", () => {
       asset({ symbol: "USDC", asset: "0xusdc", priceUsd: 1, debtUsd: 5000 }),
     ]);
     expect(assetLiquidationPrice(bd, "0xweth")).toBe("safe-alone");
+  });
+
+  it("accounts for the asset's own debt when it is both collateral and debt", () => {
+    // 1.40 WBTC + 10k USDC collateral; 0.14 WBTC + 51k USDC debt. As WBTC falls,
+    // the 0.14 WBTC debt falls with it — the readout must scale that debt, not
+    // hold total debt fixed.
+    const bd = () =>
+      breakdown([
+        asset({
+          symbol: "WBTC",
+          asset: "0xwbtc",
+          priceUsd: 60000,
+          collateralAmount: 1.4,
+          debtAmount: 0.14,
+          liquidationThreshold: 0.78,
+          liquidationBonus: 0.07,
+        }),
+        asset({
+          symbol: "USDC",
+          asset: "0xusdc",
+          priceUsd: 1,
+          collateralAmount: 10000,
+          debtAmount: 51000,
+          liquidationThreshold: 0.85,
+        }),
+      ]);
+
+    const r = assetLiquidationPrice(bd(), "0xwbtc");
+    expect(r).not.toBeNull();
+    if (!r || typeof r !== "object") throw new Error("expected an object");
+
+    // Old (buggy) behaviour held total debt fixed:
+    //   net_old = collUsd*LT = 1.4*60000*0.78 = 65520; debtOthers_old = total debt.
+    //   m_old = (totalDebt - weightedLtOthers) / net_old.
+    const totalDebt = 0.14 * 60000 + 51000; // 59400
+    const weightedLtOthers = 10000 * 0.85; // 8500
+    const mBuggy = (totalDebt - weightedLtOthers) / (1.4 * 60000 * 0.78);
+    expect(r.price).not.toBeCloseTo(60000 * mBuggy, 0); // the fix bites
+
+    // Cross-check against the engine: shocking ONLY WBTC to the reported price
+    // (others flat) must put the pre-liquidation health factor at exactly 1.
+    const m = r.price / 60000;
+    const hf = simulateCascade(bd(), { "0xwbtc": m }).healthFactorBefore;
+    expect(hf).toBeCloseTo(1, 6);
+  });
+
+  it("returns 'safe-alone' when the asset's own debt outweighs its backing", () => {
+    // Tiny WBTC collateral, large WBTC debt: WBTC falling shrinks the debt faster
+    // than the backing, so it can never trigger liquidation on its own.
+    const bd = breakdown([
+      asset({
+        symbol: "WBTC",
+        asset: "0xwbtc",
+        priceUsd: 60000,
+        collateralAmount: 0.1,
+        debtAmount: 0.5,
+        liquidationThreshold: 0.78,
+      }),
+      asset({
+        symbol: "WETH",
+        asset: "0xweth",
+        priceUsd: 3000,
+        collateralAmount: 20,
+        liquidationThreshold: 0.8,
+      }),
+    ]);
+    expect(assetLiquidationPrice(bd, "0xwbtc")).toBe("safe-alone");
   });
 
   it("returns null with no debt or for a non-collateral asset", () => {

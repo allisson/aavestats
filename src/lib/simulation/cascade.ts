@@ -33,7 +33,12 @@ type Leg = {
   debtUsd: number;
 };
 
-const HF_CLOSE_FACTOR_THRESHOLD = 0.95; // Aave v3: below this, 100% of debt may be repaid
+const HF_CLOSE_FACTOR_THRESHOLD = 0.95; // Aave v3: at or below this, 100% of debt may be repaid
+// Aave v3.1: the 50% close factor only applies when the reserve's collateral AND
+// debt are each worth at least this much; smaller positions are 100%-liquidatable.
+// The value is in the oracle's base currency; every chain we configure uses a
+// USD oracle with 8 decimals, so 2000e8 is $2000 (a non-USD pool would differ).
+const MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD = 2000;
 const MAX_STEPS = 100; // backstop against a non-converging loop
 
 function shockedUsd(a: AssetPosition, shocks: PriceShocks) {
@@ -86,8 +91,17 @@ export function simulateCascade(
       break;
     }
 
-    const closeFactor = healthFactor < HF_CLOSE_FACTOR_THRESHOLD ? 1 : 0.5;
-    let debtRepaidUsd = debtLeg.debtUsd * closeFactor;
+    // Aave v3.1 close factor: 50% (capped at half of *total* debt) only when this
+    // step's collateral and debt reserves are each large enough and HF is above
+    // 0.95; otherwise the whole reserve debt is liquidatable (small-position rule).
+    const fiftyPctApplies =
+      collLeg.collateralUsd >= MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD &&
+      debtLeg.debtUsd >= MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD &&
+      healthFactor > HF_CLOSE_FACTOR_THRESHOLD;
+    const closeFactor = fiftyPctApplies ? 0.5 : 1;
+    let debtRepaidUsd = fiftyPctApplies
+      ? Math.min(debtLeg.debtUsd, debtUsd * 0.5)
+      : debtLeg.debtUsd;
     let collateralSeizedUsd = debtRepaidUsd * (1 + collLeg.bonus);
 
     // Can't seize more collateral than this leg holds; cap the repay accordingly.
@@ -183,12 +197,18 @@ export function assetLiquidationPrice(
   const weightedLtOthers = breakdown.assets
     .filter((x) => x.asset !== asset)
     .reduce((s, x) => s + x.collateralUsd * x.liquidationThreshold, 0);
+  const debtOthers = totalDebt - a.debtUsd;
 
-  const denom = a.collateralUsd * a.liquidationThreshold;
-  if (denom <= 0) return null;
+  // As this asset's price scales by m, both its collateral backing and any debt
+  // denominated in it scale together:
+  //   HF = (weightedLtOthers + collateralUsd_a*LT_a*m) / (debtOthers + debtUsd_a*m) = 1
+  // The asset's net contribution to liquidation risk is collateralUsd_a*LT_a - debtUsd_a.
+  // If that is <= 0 its debt shrinks at least as fast as its backing, so the price
+  // falling never degrades the health factor.
+  const net = a.collateralUsd * a.liquidationThreshold - a.debtUsd;
+  if (net <= 0) return "safe-alone";
 
-  // HF = (weightedLtOthers + collateralUsd_a * m * LT_a) / totalDebt = 1
-  const m = (totalDebt - weightedLtOthers) / denom;
+  const m = (debtOthers - weightedLtOthers) / net;
   if (m <= 0) return "safe-alone";
   return { price: a.priceUsd * m, dropFraction: 1 - m };
 }
@@ -196,6 +216,7 @@ export function assetLiquidationPrice(
 export type DebtLiquidationPrice =
   | { price: number; riseFraction: number }
   | "already" // the position is already liquidatable before this debt rises
+  | "safe-alone" // this debt can rise without ever triggering liquidation
   | null; // not a debt asset, or there is no collateral
 
 /**
@@ -216,12 +237,22 @@ export function debtLiquidationPrice(
   );
   if (weightedLtColl <= 0) return null;
 
+  const weightedLtOthers =
+    weightedLtColl - d.collateralUsd * d.liquidationThreshold;
   const debtOthers = breakdown.assets
     .filter((x) => x.asset !== asset)
     .reduce((s, x) => s + x.debtUsd, 0);
 
-  // HF = weightedLtColl / (debtOthers + debtUsd_d * m) = 1
-  const m = (weightedLtColl - debtOthers) / d.debtUsd;
+  // As this asset's price scales by m, both its debt and any collateral
+  // denominated in it scale together:
+  //   HF = (weightedLtOthers + collateralUsd_d*LT_d*m) / (debtOthers + debtUsd_d*m) = 1
+  // The asset's net contribution to a rising-price risk is debtUsd_d - collateralUsd_d*LT_d.
+  // If that is <= 0 its collateral backing grows at least as fast as its debt, so
+  // the price rising never degrades the health factor.
+  const net = d.debtUsd - d.collateralUsd * d.liquidationThreshold;
+  if (net <= 0) return "safe-alone";
+
+  const m = (weightedLtOthers - debtOthers) / net;
   if (m <= 1) return "already";
   return { price: d.priceUsd * m, riseFraction: m - 1 };
 }

@@ -33,7 +33,11 @@ export async function readPosition(
   const address = getAddress(rawAddress); // checksums + validates, throws on bad input
   const client = createPublicClient({
     chain: cfg.chain,
-    transport: http(process.env[cfg.rpcEnv]), // undefined → viem uses the chain's public RPC
+    // Env RPC if set, else our pinned public endpoint (viem's chain default is
+    // unreliable for some chains). Bounded timeout so a dead RPC fails fast.
+    transport: http(process.env[cfg.rpcEnv] ?? cfg.defaultRpc, {
+      timeout: 12_000,
+    }),
   });
 
   const [coll, debt, , liqThr, ltv, hf] = await client.readContract({

@@ -20,6 +20,12 @@ export type AaveChain = {
   oracle: `0x${string}`;
   dataProvider: `0x${string}`; // AaveProtocolDataProvider (decoded per-asset reads)
   rpcEnv: string; // name of the env var holding this chain's RPC URL
+  /**
+   * Public RPC used when `rpcEnv` is unset. viem's built-in chain defaults are
+   * unreliable for several of these networks (they hang), so we pin a known-good
+   * public endpoint per chain. Override with the env var for production.
+   */
+  defaultRpc: string;
 };
 
 export const AAVE_CHAINS: AaveChain[] = [
@@ -31,6 +37,7 @@ export const AAVE_CHAINS: AaveChain[] = [
     oracle: "0xb56c2F0B653B2e0b10C9b928C8580Ac5Df02C7C7",
     dataProvider: "0x243Aa95cAC2a25651eda86e80bEe66114413c43b",
     rpcEnv: "RPC_URL_ARBITRUM",
+    defaultRpc: "https://arbitrum-one-rpc.publicnode.com",
   },
   {
     id: 1,
@@ -40,6 +47,7 @@ export const AAVE_CHAINS: AaveChain[] = [
     oracle: "0x54586bE62E3c3580375aE3723C145253060Ca0C2",
     dataProvider: "0x0a16f2FCC0D44FaE41cc54e079281D84A363bECD",
     rpcEnv: "RPC_URL_ETHEREUM",
+    defaultRpc: "https://ethereum-rpc.publicnode.com",
   },
   {
     id: 10,
@@ -49,6 +57,7 @@ export const AAVE_CHAINS: AaveChain[] = [
     oracle: "0xD81eb3728a631871a7eBBaD631b5f424909f0c77",
     dataProvider: "0x243Aa95cAC2a25651eda86e80bEe66114413c43b",
     rpcEnv: "RPC_URL_OPTIMISM",
+    defaultRpc: "https://optimism-rpc.publicnode.com",
   },
   {
     id: 8453,
@@ -58,6 +67,7 @@ export const AAVE_CHAINS: AaveChain[] = [
     oracle: "0x2Cc0Fc26eD4563A5ce5e8bdcfe1A2878676Ae156",
     dataProvider: "0x0F43731EB8d45A581f4a36DD74F5f358bc90C73A",
     rpcEnv: "RPC_URL_BASE",
+    defaultRpc: "https://base-rpc.publicnode.com",
   },
   {
     id: 137,
@@ -67,6 +77,7 @@ export const AAVE_CHAINS: AaveChain[] = [
     oracle: "0xb023e699F5a33916Ea823A16485e259257cA8Bd1",
     dataProvider: "0x243Aa95cAC2a25651eda86e80bEe66114413c43b",
     rpcEnv: "RPC_URL_POLYGON",
+    defaultRpc: "https://polygon-bor-rpc.publicnode.com",
   },
 ];
 

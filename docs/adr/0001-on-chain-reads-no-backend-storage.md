@@ -1,5 +1,9 @@
 # Read Positions on-chain via RPC, with no backend storage
 
+> **Superseded in part by [ADR 0005](0005-public-rpc-client-side-reads-static-export.md):**
+> reads now run client-side against public RPCs (static export), not server-side.
+> The RPC-vs-subgraph and no-backend-storage decisions below still hold.
+
 We read Position data (collateral, debt, liquidation thresholds, E-Mode, prices)
 directly from the Aave v3 contracts over an RPC endpoint using viem, rather than
 from the Aave subgraph or a hosted API. This guarantees the numbers match what

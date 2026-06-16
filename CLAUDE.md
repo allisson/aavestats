@@ -21,10 +21,12 @@ Read `CONTEXT.md` first — it is the glossary. Use its terms exactly. Notably:
 
 ## Key decisions (see docs/adr/)
 
-- **0001** — Read on-chain via RPC (viem, server-side); no subgraph, no database.
+- **0001** — Read on-chain via RPC (viem); no subgraph, no database.
 - **0002** — The **Aave Oracle** price drives all math, not market price.
 - **0003** — Multi-asset liquidation cascades use a **deterministic liquidator
   strategy** (repay largest debt, seize highest-bonus collateral).
+- **0005** — **Public RPC only, reads run in the browser, static export** — no
+  server, no keyed RPC (supersedes the server-side half of 0001).
 
 ## Correctness requirements
 
@@ -39,28 +41,29 @@ Read `CONTEXT.md` first — it is the glossary. Use its terms exactly. Notably:
 ## Stack
 
 Next.js (App Router) + TypeScript · viem for on-chain reads · Tailwind ·
-Recharts for the Scenario chart. RPC reads run in server-side route
-handlers/components so RPC keys never reach the client.
+Recharts for the Scenario chart. The app is a **static export** (`output: "export"`,
+`next build` → `./out`): every read runs in the browser against public RPCs, so
+there is no server and no RPC key to protect (see ADR 0005).
 
 ## Dev commands
 
 ```bash
 npm install
 npm run dev          # http://localhost:3000
-npm run build        # type-check + production build
+npm run build        # type-check + static export → ./out
 npm run lint         # eslint (flat config, eslint-config-next)
 npm run format       # prettier --write .   (format:check verifies in CI)
 npm test             # vitest unit tests (cascade engine + position math)
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint + format:check + test on every push to
-`main` and on pull requests. ESLint uses flat config (`eslint.config.mjs`); the
-React 19 purity / set-state-in-effect rules are enabled, so prefer
-`useSyncExternalStore` over localStorage-in-effect and keep `Date.now()` out of
-render.
+CI (`.github/workflows/ci.yml`) runs lint + format:check + test + build on every
+push to `main` and on pull requests (the build step guards the static export).
+ESLint uses flat config (`eslint.config.mjs`); the React 19 purity /
+set-state-in-effect rules are enabled, so prefer `useSyncExternalStore` over
+localStorage-in-effect and keep `Date.now()` out of render.
 
-RPC URLs are optional env vars (`.env.example`); without them viem falls back to
-public RPCs.
+All RPC endpoints are public and pinned per chain in `src/lib/chains.ts` (`rpc`
+field) — there are no RPC env vars (see ADR 0005).
 
 ## Layout
 
@@ -75,8 +78,9 @@ public RPCs.
 - `*.test.ts` (Vitest) — cover the cascade, liquidation price, reconcile, and the
   E-Mode override. These pin the math; keep them green when touching the engine.
 - `src/lib/watchlist.ts` — localStorage persistence of watched addresses.
-- `src/app/` — Next.js App Router UI; `actions.ts` has the server actions
-  (`fetchBreakdown` for detail, `fetchSummary` for the lightweight list badges).
+- `src/app/` — Next.js App Router UI; `actions.ts` has the client-side read
+  helpers (`fetchBreakdown` for detail, `fetchSummary` for the lightweight list
+  badges) — plain viem calls that run in the browser, not server actions.
 - `src/components/Watchlist.tsx` — add form + persisted rows with health-factor
   badges; `CascadePanel.tsx` — per-asset table + Scenario chart/sliders.
 
@@ -108,7 +112,8 @@ rising).
 Addresses are a persisted **watchlist** (localStorage): watch several at once,
 each row shows a live health-factor badge, click to open the full simulation.
 Every read is a fresh on-chain snapshot — the detail shows an "updated N ago"
-indicator and a Refresh button (data is never cached server-side, per ADR 0001).
+indicator and a Refresh button (there is no server and nothing is cached; every
+view is a fresh browser-side read, per ADR 0001/0005).
 
 ### Known gaps / next
 

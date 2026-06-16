@@ -1,5 +1,3 @@
-"use server";
-
 import { readBreakdown, type PositionBreakdown } from "@/lib/aave/breakdown";
 import { readPosition, type Position } from "@/lib/aave/position";
 

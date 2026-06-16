@@ -1,4 +1,3 @@
-import "server-only";
 import { createPublicClient, http, getAddress, formatUnits } from "viem";
 import { getChain } from "@/lib/chains";
 import { poolAbi } from "./abi";
@@ -33,9 +32,9 @@ export async function readPosition(
   const address = getAddress(rawAddress); // checksums + validates, throws on bad input
   const client = createPublicClient({
     chain: cfg.chain,
-    // Env RPC if set, else our pinned public endpoint (viem's chain default is
-    // unreliable for some chains). Bounded timeout so a dead RPC fails fast.
-    transport: http(process.env[cfg.rpcEnv] ?? cfg.defaultRpc, {
+    // Pinned public endpoint (viem's chain default is unreliable for some
+    // chains). Bounded timeout so a dead RPC fails fast.
+    transport: http(cfg.rpc, {
       timeout: 12_000,
     }),
   });

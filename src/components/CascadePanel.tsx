@@ -23,6 +23,16 @@ import {
   type PriceShocks,
 } from "@/lib/simulation/cascade";
 
+// Shared chart colors, pulled from the design tokens in globals.css.
+const C = {
+  axis: "#7c95a0", // mist
+  grid: "#1b3a48", // steel
+  panel: "#0c2430", // deep
+  trace: "#2fd6ae", // clear
+  reef: "#ff5c4d", // reef
+  now: "#7c95a0", // mist
+};
+
 const usd = (n: number) =>
   n.toLocaleString("en-US", {
     style: "currency",
@@ -50,14 +60,14 @@ export function CascadePanel({ breakdown }: { breakdown: PositionBreakdown }) {
   return (
     <div className="space-y-8">
       {!breakdown.reconciles ? (
-        <p className="rounded border border-amber-900 bg-amber-950/30 px-3 py-2 text-sm text-amber-300">
+        <p className="rounded-lg border border-shoal/40 bg-shoal/10 px-4 py-3 text-sm text-shoal">
           Per-asset reconstruction does not match Aave&apos;s aggregate, so the
           cascade below may differ from Aave&apos;s effective values. The
           summary above (read from Aave directly) remains accurate.
         </p>
       ) : (
         breakdown.eModeCategory > 0 && (
-          <p className="rounded border border-neutral-800 bg-neutral-900/50 px-3 py-2 text-sm text-neutral-400">
+          <p className="rounded-lg border border-steel bg-deep/50 px-4 py-3 text-sm text-mist">
             E-Mode category {breakdown.eModeCategory} active — the
             category&apos;s boosted liquidation thresholds are applied below.
           </p>
@@ -67,14 +77,14 @@ export function CascadePanel({ breakdown }: { breakdown: PositionBreakdown }) {
       <AssetsTable breakdown={breakdown} />
 
       {!hasDebt ? (
-        <p className="text-neutral-400">
+        <p className="text-mist">
           This position has no debt, so it cannot be liquidated.
         </p>
       ) : !hasCollateral ? (
-        <p className="text-neutral-400">No collateral to simulate against.</p>
+        <p className="text-mist">No collateral to simulate against.</p>
       ) : (
         <section className="space-y-6">
-          <h2 className="text-sm font-medium text-neutral-300">Scenario</h2>
+          <SectionTitle>Scenario</SectionTitle>
 
           {distance.kind === "collateral-fall" ? (
             <DefaultScenario
@@ -90,14 +100,14 @@ export function CascadePanel({ breakdown }: { breakdown: PositionBreakdown }) {
             />
           ) : distance.kind === "eligible-now" ? (
             <div className="space-y-3">
-              <p className="text-sm text-amber-300">
+              <p className="text-sm text-shoal">
                 Already eligible for liquidation at current prices — the cascade
                 below runs from here.
               </p>
               <CascadeOutcome result={simulateCascade(breakdown, {})} />
             </div>
           ) : (
-            <p className="text-sm text-neutral-400">
+            <p className="text-sm text-mist">
               No single volatile price move brings this position to liquidation.
               Use the custom scenario below to combine moves.
             </p>
@@ -110,53 +120,67 @@ export function CascadePanel({ breakdown }: { breakdown: PositionBreakdown }) {
   );
 }
 
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="flex items-center gap-3 text-sm font-semibold text-bone">
+      {children}
+      <span className="h-px flex-1 bg-steel" />
+    </h2>
+  );
+}
+
 function AssetsTable({ breakdown }: { breakdown: PositionBreakdown }) {
   return (
     <section>
-      <h2 className="mb-3 text-sm font-medium text-neutral-300">Assets</h2>
-      <div className="overflow-x-auto rounded-lg border border-neutral-800">
+      <h2 className="mb-3 text-sm font-semibold text-bone">Assets</h2>
+      <div className="overflow-x-auto rounded-xl border border-steel">
         <table className="w-full text-sm">
-          <thead className="text-xs uppercase tracking-wide text-neutral-500">
-            <tr className="border-b border-neutral-800 text-left">
-              <th className="px-3 py-2">Asset</th>
-              <th className="px-3 py-2 text-right">Collateral</th>
-              <th className="px-3 py-2 text-right">Debt</th>
-              <th className="px-3 py-2 text-right">Liq. threshold</th>
-              <th className="px-3 py-2 text-right">Liq. bonus</th>
+          <thead className="eyebrow">
+            <tr className="border-b border-steel text-left">
+              <th className="px-4 py-2.5 font-normal">Asset</th>
+              <th className="px-4 py-2.5 text-right font-normal">Collateral</th>
+              <th className="px-4 py-2.5 text-right font-normal">Debt</th>
+              <th className="px-4 py-2.5 text-right font-normal">
+                Liq. threshold
+              </th>
+              <th className="px-4 py-2.5 text-right font-normal">Liq. bonus</th>
             </tr>
           </thead>
           <tbody>
             {breakdown.assets.map((a) => (
-              <tr key={a.asset} className="border-b border-neutral-900">
-                <td className="px-3 py-2 font-medium">{a.symbol}</td>
-                <td className="px-3 py-2 text-right font-mono">
+              <tr
+                key={a.asset}
+                className="border-b border-steel/50 last:border-b-0"
+              >
+                <td className="px-4 py-3 font-medium text-bone">{a.symbol}</td>
+                <td className="px-4 py-3 text-right font-mono">
                   {a.collateralUsd > 0 ? (
                     <>
-                      <div>{usd(a.collateralUsd)}</div>
-                      <div className="text-xs text-neutral-500">
+                      <div className="text-bone">{usd(a.collateralUsd)}</div>
+                      <div className="text-xs text-mist">
                         {amt(a.collateralAmount)} {a.symbol}
                       </div>
                     </>
                   ) : (
-                    "—"
+                    <span className="text-mist/40">—</span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right font-mono">
+                <td className="px-4 py-3 text-right font-mono">
                   {a.debtUsd > 0 ? (
                     <>
-                      <div>{usd(a.debtUsd)}</div>
-                      <div className="text-xs text-neutral-500">
+                      <div className="text-bone">{usd(a.debtUsd)}</div>
+                      <div className="text-xs text-mist">
                         {amt(a.debtAmount)} {a.symbol}
                       </div>
                     </>
                   ) : (
-                    "—"
+                    <span className="text-mist/40">—</span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right font-mono text-neutral-400">
+                <td className="px-4 py-3 text-right font-mono text-mist">
                   {(a.liquidationThreshold * 100).toFixed(1)}%
                 </td>
-                <td className="px-3 py-2 text-right font-mono text-neutral-400">
+                <td className="px-4 py-3 text-right font-mono text-mist">
                   {a.collateralUsd > 0
                     ? `${(a.liquidationBonus * 100).toFixed(1)}%`
                     : "—"}
@@ -239,13 +263,13 @@ function DefaultScenario({
     direction === "collateral-fall" ? "volatile collateral" : "volatile debt";
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-1">
+    <div className="space-y-5 rounded-xl border border-steel bg-deep/40 p-5">
+      <div className="space-y-2">
         <div className="flex items-baseline justify-between text-sm">
-          <span className="text-neutral-300">
+          <span className="text-bone">
             Crash severity — {subject} {verb}s together
           </span>
-          <span className="font-mono text-neutral-400">
+          <span className="font-mono text-bone">
             {sign}
             {severityPct}%
           </span>
@@ -257,11 +281,12 @@ function DefaultScenario({
           value={severityPct}
           onChange={(e) => setSeverityPct(Number(e.target.value))}
           className="w-full"
+          aria-label={`Crash severity, ${subject} ${verb}s together`}
         />
       </div>
 
       <div>
-        <p className="mb-1 text-xs text-neutral-500">
+        <p className="mb-2 text-xs text-mist">
           Health factor as {subject} {verb}s together, running the full
           liquidation cascade at each step.
         </p>
@@ -275,20 +300,23 @@ function DefaultScenario({
                 dataKey="movePct"
                 type="number"
                 domain={[0, maxPct]}
-                stroke="#666"
-                tick={{ fontSize: 12 }}
+                stroke={C.grid}
+                tick={{ fontSize: 12, fill: C.axis }}
                 tickFormatter={(v) => `${sign}${v}%`}
               />
               <YAxis
-                stroke="#666"
-                tick={{ fontSize: 12 }}
+                stroke={C.grid}
+                tick={{ fontSize: 12, fill: C.axis }}
                 domain={[0, "auto"]}
               />
               <Tooltip
                 contentStyle={{
-                  background: "#171717",
-                  border: "1px solid #333",
+                  background: C.panel,
+                  border: `1px solid ${C.grid}`,
+                  borderRadius: 8,
+                  color: "#e7eeec",
                 }}
+                labelStyle={{ color: C.axis }}
                 labelFormatter={(v) => `${subject} ${verb}s ${sign}${v}%`}
                 formatter={(v) => [v, "Health factor (pre-liquidation)"]}
               />
@@ -296,35 +324,35 @@ function DefaultScenario({
               <ReferenceArea
                 x1={triggerPct}
                 x2={maxPct}
-                fill="#ef4444"
-                fillOpacity={0.07}
+                fill={C.reef}
+                fillOpacity={0.08}
               />
-              <ReferenceLine y={1} stroke="#ef4444" strokeDasharray="4 4" />
+              <ReferenceLine y={1} stroke={C.reef} strokeDasharray="4 4" />
               <ReferenceLine
                 x={triggerPct}
-                stroke="#ef4444"
+                stroke={C.reef}
                 strokeDasharray="2 3"
                 label={{
                   value: "liquidation begins",
                   position: "insideTopRight",
-                  fill: "#f87171",
+                  fill: C.reef,
                   fontSize: 11,
                 }}
               />
               <ReferenceLine
                 x={0}
-                stroke="#666"
+                stroke={C.grid}
                 label={{
                   value: "today",
                   position: "insideTopLeft",
-                  fill: "#999",
+                  fill: C.now,
                   fontSize: 11,
                 }}
               />
               <Line
                 type="monotone"
                 dataKey="hf"
-                stroke="#22c55e"
+                stroke={C.trace}
                 dot={false}
                 strokeWidth={2}
               />
@@ -352,23 +380,23 @@ function CascadeOutcome({
   const penalty = seized - repaid;
 
   return (
-    <div className="space-y-3 rounded-lg border border-neutral-800 p-4">
+    <div className="space-y-3 rounded-lg border border-steel bg-abyss/40 p-4">
       {!liquidated ? (
-        <p className="text-sm">
+        <p className="text-sm text-mist">
           Health factor here:{" "}
-          <span className="font-mono text-green-400">
+          <span className="font-mono text-clear">
             {hfBefore != null ? hfBefore.toFixed(3) : "∞"}
           </span>
-          <span className="ml-2 text-neutral-500">— no liquidation yet</span>
+          <span className="ml-2">— no liquidation yet</span>
         </p>
       ) : (
         <>
-          <p className="text-sm text-neutral-200">
+          <p className="text-sm text-bone">
             If liquidated here: seize{" "}
             <span className="font-mono">{usd(seized)}</span> of collateral, pay{" "}
             <span className="font-mono">{usd(penalty)}</span> in penalty,{" "}
             {result.insolvent ? (
-              <span className="text-red-400">
+              <span className="text-reef">
                 collateral exhausted with{" "}
                 <span className="font-mono">{usd(result.finalDebtUsd)}</span>{" "}
                 bad debt remaining.
@@ -376,7 +404,7 @@ function CascadeOutcome({
             ) : (
               <>
                 ending at health factor{" "}
-                <span className="font-mono text-green-400">
+                <span className="font-mono text-clear">
                   {result.finalHealthFactor == null
                     ? "∞"
                     : result.finalHealthFactor.toFixed(3)}
@@ -387,39 +415,52 @@ function CascadeOutcome({
           </p>
 
           <details className="text-sm">
-            <summary className="cursor-pointer text-neutral-400 hover:text-neutral-200">
+            <summary className="cursor-pointer text-mist transition-colors hover:text-bone">
               {result.events.length} liquidation
               {result.events.length === 1 ? "" : "s"} — show steps
             </summary>
-            <div className="mt-2 overflow-x-auto">
+            <div className="mt-3 overflow-x-auto">
               <table className="w-full text-xs">
-                <thead className="text-neutral-500">
-                  <tr className="border-b border-neutral-800 text-left">
-                    <th className="px-2 py-1">#</th>
-                    <th className="px-2 py-1 text-right">HF before</th>
-                    <th className="px-2 py-1 text-right">Repay</th>
-                    <th className="px-2 py-1 text-right">Seize</th>
-                    <th className="px-2 py-1 text-right">Close</th>
-                    <th className="px-2 py-1 text-right">Bonus</th>
+                <thead className="eyebrow">
+                  <tr className="border-b border-steel text-left">
+                    <th className="px-2 py-1.5 font-normal">#</th>
+                    <th className="px-2 py-1.5 text-right font-normal">
+                      HF before
+                    </th>
+                    <th className="px-2 py-1.5 text-right font-normal">
+                      Repay
+                    </th>
+                    <th className="px-2 py-1.5 text-right font-normal">
+                      Seize
+                    </th>
+                    <th className="px-2 py-1.5 text-right font-normal">
+                      Close
+                    </th>
+                    <th className="px-2 py-1.5 text-right font-normal">
+                      Bonus
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="font-mono">
+                <tbody className="font-mono text-bone">
                   {result.events.map((e) => (
-                    <tr key={e.step} className="border-b border-neutral-900">
-                      <td className="px-2 py-1 text-neutral-500">{e.step}</td>
-                      <td className="px-2 py-1 text-right">
+                    <tr
+                      key={e.step}
+                      className="border-b border-steel/40 last:border-b-0"
+                    >
+                      <td className="px-2 py-1.5 text-mist">{e.step}</td>
+                      <td className="px-2 py-1.5 text-right">
                         {e.healthFactorBefore.toFixed(3)}
                       </td>
-                      <td className="px-2 py-1 text-right">
+                      <td className="px-2 py-1.5 text-right">
                         {usd(e.debtRepaidUsd)} {e.debtSymbol}
                       </td>
-                      <td className="px-2 py-1 text-right">
+                      <td className="px-2 py-1.5 text-right">
                         {usd(e.collateralSeizedUsd)} {e.collateralSymbol}
                       </td>
-                      <td className="px-2 py-1 text-right text-neutral-400">
+                      <td className="px-2 py-1.5 text-right text-mist">
                         {(e.closeFactor * 100).toFixed(0)}%
                       </td>
-                      <td className="px-2 py-1 text-right text-neutral-400">
+                      <td className="px-2 py-1.5 text-right text-mist">
                         +{(e.bonus * 100).toFixed(1)}%
                       </td>
                     </tr>
@@ -484,26 +525,24 @@ function AdvancedScenario({ breakdown }: { breakdown: PositionBreakdown }) {
   const anyChange = Object.keys(shocks).length > 0;
 
   return (
-    <details className="rounded-lg border border-neutral-800">
-      <summary className="cursor-pointer px-4 py-3 text-sm text-neutral-300 hover:text-neutral-100">
+    <details className="rounded-xl border border-steel">
+      <summary className="cursor-pointer px-5 py-3.5 text-sm text-mist transition-colors hover:text-bone">
         Custom scenario — shock each price individually
       </summary>
-      <div className="space-y-5 border-t border-neutral-800 px-4 py-4">
+      <div className="space-y-6 border-t border-steel px-5 py-5">
         {anyChange && (
           <div className="flex justify-end">
             <button
               onClick={() => setShocks({})}
-              className="text-xs text-neutral-500 hover:text-neutral-300"
+              className="text-xs text-mist transition-colors hover:text-bone"
             >
               Reset
             </button>
           </div>
         )}
 
-        <div className="space-y-1">
-          <p className="text-xs uppercase tracking-wide text-neutral-500">
-            Collateral falls
-          </p>
+        <div className="space-y-2">
+          <p className="eyebrow">Collateral falls</p>
           {collateralAssets.map((a) => {
             const drop = 1 - mult(a.asset);
             const liq = assetLiquidationPrice(breakdown, a.asset);
@@ -530,10 +569,8 @@ function AdvancedScenario({ breakdown }: { breakdown: PositionBreakdown }) {
         </div>
 
         {debtAssets.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-xs uppercase tracking-wide text-neutral-500">
-              Debt rises
-            </p>
+          <div className="space-y-2">
+            <p className="eyebrow">Debt rises</p>
             {debtAssets.map((a) => {
               const rise = mult(a.asset) - 1;
               const liq = debtLiquidationPrice(breakdown, a.asset);
@@ -563,7 +600,7 @@ function AdvancedScenario({ breakdown }: { breakdown: PositionBreakdown }) {
         )}
 
         <div>
-          <p className="mb-1 text-xs text-neutral-500">
+          <p className="mb-2 text-xs text-mist">
             Health factor as this scenario unfolds (0% = today, 100% = the
             shocks above), running the full liquidation cascade at each step.
           </p>
@@ -575,28 +612,31 @@ function AdvancedScenario({ breakdown }: { breakdown: PositionBreakdown }) {
               >
                 <XAxis
                   dataKey="intensityPct"
-                  stroke="#666"
-                  tick={{ fontSize: 12 }}
+                  stroke={C.grid}
+                  tick={{ fontSize: 12, fill: C.axis }}
                   tickFormatter={(v) => `${v}%`}
                 />
                 <YAxis
-                  stroke="#666"
-                  tick={{ fontSize: 12 }}
+                  stroke={C.grid}
+                  tick={{ fontSize: 12, fill: C.axis }}
                   domain={[0, "auto"]}
                 />
                 <Tooltip
                   contentStyle={{
-                    background: "#171717",
-                    border: "1px solid #333",
+                    background: C.panel,
+                    border: `1px solid ${C.grid}`,
+                    borderRadius: 8,
+                    color: "#e7eeec",
                   }}
+                  labelStyle={{ color: C.axis }}
                   labelFormatter={(v) => `Scenario intensity: ${v}%`}
                   formatter={(v) => [v, "Health factor (pre-liquidation)"]}
                 />
-                <ReferenceLine y={1} stroke="#ef4444" strokeDasharray="4 4" />
+                <ReferenceLine y={1} stroke={C.reef} strokeDasharray="4 4" />
                 <Line
                   type="monotone"
                   dataKey="hf"
-                  stroke="#22c55e"
+                  stroke={C.trace}
                   dot={false}
                   strokeWidth={2}
                 />
@@ -631,12 +671,12 @@ function ShockRow({
   note: string;
 }) {
   return (
-    <div className="space-y-1 py-1">
+    <div className="space-y-1.5 py-1.5">
       <div className="flex items-baseline justify-between text-sm">
-        <span className="font-medium">{symbol}</span>
-        <span className="font-mono text-xs text-neutral-400">
+        <span className="font-medium text-bone">{symbol}</span>
+        <span className="font-mono text-xs text-mist">
           {price(from)} → {price(to)}
-          <span className="ml-2 text-neutral-500">
+          <span className="ml-2 text-bone">
             {sign}
             {pct}%
           </span>
@@ -649,8 +689,9 @@ function ShockRow({
         value={pct}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full"
+        aria-label={`${symbol} price ${sign === "-" ? "fall" : "rise"}`}
       />
-      {note && <p className="text-xs text-neutral-500">{note}</p>}
+      {note && <p className="text-xs text-mist/80">{note}</p>}
     </div>
   );
 }

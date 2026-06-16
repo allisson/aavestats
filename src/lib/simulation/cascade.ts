@@ -363,6 +363,74 @@ export function distanceToLiquidation(
     : { kind: "debt-rise", riseFraction };
 }
 
+export type LiquidationOnset =
+  | {
+      kind: "price";
+      side: "collateral" | "debt";
+      symbol: string;
+      price: number;
+    } // single volatile asset: its Oracle price at the trigger
+  | { kind: "value"; side: "collateral" | "debt"; usd: number } // several assets move together: total side value at the trigger
+  | null; // no reachable liquidation (no debt, no risk, or already eligible)
+
+/**
+ * Where liquidation begins, when the binding move from distanceToLiquidation
+ * brings the health factor to exactly 1. Only the volatile side moves; stables
+ * are held flat. When a single volatile asset binds (the common case), this is
+ * that asset's Oracle price at the crossing — the price it must reach. When
+ * several move together no single price captures it, so it returns the total
+ * value of that side instead. See docs/adr/0004.
+ */
+export function liquidationOnset(
+  breakdown: PositionBreakdown,
+): LiquidationOnset {
+  const d = distanceToLiquidation(breakdown);
+  if (d.kind === "collateral-fall") {
+    const m = 1 - d.dropFraction;
+    const movers = breakdown.assets.filter(
+      (a) => a.collateralUsd > 0 && !isStableAsset(a),
+    );
+    if (movers.length === 1) {
+      const a = movers[0];
+      return {
+        kind: "price",
+        side: "collateral",
+        symbol: a.symbol,
+        price: a.priceUsd * m,
+      };
+    }
+    const usd = movers.reduce((s, a) => s + a.collateralUsd * m, 0);
+    const stable = breakdown.assets.reduce(
+      (s, a) =>
+        s + (a.collateralUsd > 0 && isStableAsset(a) ? a.collateralUsd : 0),
+      0,
+    );
+    return { kind: "value", side: "collateral", usd: usd + stable };
+  }
+  if (d.kind === "debt-rise") {
+    const m = 1 + d.riseFraction;
+    const movers = breakdown.assets.filter(
+      (a) => a.debtUsd > 0 && !isStableAsset(a),
+    );
+    if (movers.length === 1) {
+      const a = movers[0];
+      return {
+        kind: "price",
+        side: "debt",
+        symbol: a.symbol,
+        price: a.priceUsd * m,
+      };
+    }
+    const usd = movers.reduce((s, a) => s + a.debtUsd * m, 0);
+    const stable = breakdown.assets.reduce(
+      (s, a) => s + (a.debtUsd > 0 && isStableAsset(a) ? a.debtUsd : 0),
+      0,
+    );
+    return { kind: "value", side: "debt", usd: usd + stable };
+  }
+  return null;
+}
+
 /** The set of volatile asset addresses that move along the binding direction. */
 export function bindingMoveAssets(
   breakdown: PositionBreakdown,

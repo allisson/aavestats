@@ -8,10 +8,21 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { PositionBreakdown } from "@/lib/aave/breakdown";
-import { fetchBreakdown, fetchSummary, type SummaryResult } from "./actions";
+import type { ReserveCatalog } from "@/lib/aave/catalog";
+import type { HypotheticalItem } from "@/lib/aave/hypothetical";
+import {
+  fetchBreakdown,
+  fetchCatalog,
+  fetchSummary,
+  type SummaryResult,
+} from "./actions";
 import { CascadePanel } from "@/components/CascadePanel";
 import { Hero } from "@/components/Hero";
 import { Watchlist } from "@/components/Watchlist";
+import {
+  HypotheticalEditor,
+  type EditorSeed,
+} from "@/components/HypotheticalEditor";
 import {
   addWatch,
   getServerWatchlist,
@@ -21,6 +32,23 @@ import {
   watchKey,
   type WatchEntry,
 } from "@/lib/watchlist";
+import {
+  getServerHypotheticals,
+  getHypothetical,
+  getHypotheticals,
+  removeHypothetical,
+  saveHypothetical,
+  subscribeHypotheticals,
+} from "@/lib/hypotheticals";
+
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+type EditorState = {
+  key: string; // remount key so switching positions resets the draft
+  chainId: number;
+  savedId: string | null;
+  seed: EditorSeed;
+};
 
 const usd = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -47,6 +75,18 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const inFlight = useRef<Set<string>>(new Set());
 
+  const hypotheticals = useSyncExternalStore(
+    subscribeHypotheticals,
+    getHypotheticals,
+    getServerHypotheticals,
+  );
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [catalog, setCatalog] = useState<ReserveCatalog | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  // Monotonic token so a slow catalog read for an abandoned chain is discarded.
+  const catalogReq = useRef(0);
+  const editorSeq = useRef(0);
+
   // Fetch a lightweight summary for any watched address we don't have yet.
   // A missing summary renders as "loading"; setState only runs in the async
   // callback, never synchronously in the effect.
@@ -63,6 +103,8 @@ export default function Home() {
   }, [entries, summaries]);
 
   const load = useCallback(async (entry: WatchEntry, silent: boolean) => {
+    setEditor(null);
+    setCatalog(null);
     setSelected(entry);
     setDetailError(null);
     if (silent) setRefreshing(true);
@@ -111,6 +153,88 @@ export default function Home() {
     }
   }
 
+  const loadCatalog = useCallback(async (chainId: number) => {
+    const token = ++catalogReq.current;
+    setCatalog(null);
+    setCatalogError(null);
+    const res = await fetchCatalog(chainId);
+    if (token !== catalogReq.current) return; // a newer request superseded this
+    if (res.ok) setCatalog(res.catalog);
+    else setCatalogError(res.error);
+  }, []);
+
+  const openEditor = useCallback(
+    (state: EditorState) => {
+      setSelected(null);
+      setBreakdown(null);
+      setDetailError(null);
+      setEditor(state);
+      loadCatalog(state.chainId);
+    },
+    [loadCatalog],
+  );
+
+  const newHypothetical = (chainId: number) =>
+    openEditor({
+      key: `new-${++editorSeq.current}`,
+      chainId,
+      savedId: null,
+      seed: { label: "", eModeCategory: 0, items: [] },
+    });
+
+  const openHypothetical = (id: string) => {
+    const h = getHypothetical(id);
+    if (!h) return;
+    openEditor({
+      key: `saved-${h.id}`,
+      chainId: h.chainId,
+      savedId: h.id,
+      seed: { label: h.label, eModeCategory: h.eModeCategory, items: h.items },
+    });
+  };
+
+  const forkToHypothetical = () => {
+    if (!selected || !breakdown) return;
+    const items: HypotheticalItem[] = breakdown.assets.map((a) => ({
+      asset: a.asset,
+      collateralAmount: a.collateralAmount,
+      debtAmount: a.debtAmount,
+    }));
+    openEditor({
+      key: `fork-${++editorSeq.current}`,
+      chainId: selected.chainId,
+      savedId: null,
+      seed: {
+        label: `Fork of ${short(selected.address)}`,
+        eModeCategory: breakdown.eModeCategory,
+        items,
+      },
+    });
+  };
+
+  const saveEditor = (recipe: {
+    label: string;
+    eModeCategory: number;
+    items: HypotheticalItem[];
+  }) => {
+    if (!editor) return;
+    const id = editor.savedId ?? crypto.randomUUID();
+    saveHypothetical({ id, chainId: editor.chainId, ...recipe });
+    setEditor((e) =>
+      e ? { ...e, savedId: id, key: `saved-${id}`, seed: recipe } : e,
+    );
+  };
+
+  const closeEditor = () => {
+    setEditor(null);
+    setCatalog(null);
+  };
+
+  const deleteEditor = () => {
+    if (editor?.savedId) removeHypothetical(editor.savedId);
+    closeEditor();
+  };
+
   return (
     <div className="mx-auto max-w-6xl px-5 py-8 sm:px-8 sm:py-12">
       <header className="mb-8 flex items-end justify-between gap-4 border-b border-steel pb-5">
@@ -138,70 +262,102 @@ export default function Home() {
             onAdd={add}
             onSelect={select}
             onRemove={remove}
+            hypotheticals={hypotheticals}
+            selectedHypotheticalId={editor?.savedId ?? null}
+            onNewHypothetical={newHypothetical}
+            onSelectHypothetical={openHypothetical}
+            onRemoveHypothetical={removeHypothetical}
           />
         </aside>
 
         <main className="min-w-0">
-          {detailLoading && <p className="text-mist">Taking a sounding…</p>}
-          {detailError && (
-            <p className="rounded-lg border border-reef/40 bg-reef/10 px-4 py-3 text-sm text-reef">
-              {detailError}
-            </p>
-          )}
-          {!detailLoading && !detailError && !breakdown && (
-            <EmptyState hasEntries={entries.length > 0} />
-          )}
-          {breakdown &&
-            breakdown.position.totalCollateralUsd === 0 &&
-            breakdown.position.totalDebtUsd === 0 && (
-              <NoPositions
-                onRefresh={refresh}
-                refreshing={refreshing}
-                fetchedAt={fetchedAt}
+          {editor ? (
+            catalogError ? (
+              <p className="rounded-lg border border-reef/40 bg-reef/10 px-4 py-3 text-sm text-reef">
+                {catalogError}
+              </p>
+            ) : !catalog ? (
+              <p className="text-mist">Charting the reserves…</p>
+            ) : (
+              <HypotheticalEditor
+                key={editor.key}
+                catalog={catalog}
+                seed={editor.seed}
+                onSave={saveEditor}
+                onDelete={editor.savedId ? deleteEditor : undefined}
+                onClose={closeEditor}
               />
-            )}
-          {breakdown &&
-            (breakdown.position.totalCollateralUsd > 0 ||
-              breakdown.position.totalDebtUsd > 0) && (
-              <section className="space-y-8">
-                {fetchedAt && (
-                  <div className="flex justify-end">
-                    <Freshness
-                      fetchedAt={fetchedAt}
-                      onRefresh={refresh}
-                      refreshing={refreshing}
-                    />
-                  </div>
+            )
+          ) : (
+            <>
+              {detailLoading && <p className="text-mist">Taking a sounding…</p>}
+              {detailError && (
+                <p className="rounded-lg border border-reef/40 bg-reef/10 px-4 py-3 text-sm text-reef">
+                  {detailError}
+                </p>
+              )}
+              {!detailLoading && !detailError && !breakdown && (
+                <EmptyState hasEntries={entries.length > 0} />
+              )}
+              {breakdown &&
+                breakdown.position.totalCollateralUsd === 0 &&
+                breakdown.position.totalDebtUsd === 0 && (
+                  <NoPositions
+                    onRefresh={refresh}
+                    refreshing={refreshing}
+                    fetchedAt={fetchedAt}
+                  />
                 )}
-                <Hero breakdown={breakdown} />
+              {breakdown &&
+                (breakdown.position.totalCollateralUsd > 0 ||
+                  breakdown.position.totalDebtUsd > 0) && (
+                  <section className="space-y-8">
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        onClick={forkToHypothetical}
+                        className="rounded-md border border-steel px-2.5 py-1 text-xs text-bone transition-colors hover:bg-shelf"
+                      >
+                        Edit as hypothetical
+                      </button>
+                      {fetchedAt && (
+                        <Freshness
+                          fetchedAt={fetchedAt}
+                          onRefresh={refresh}
+                          refreshing={refreshing}
+                        />
+                      )}
+                    </div>
+                    <Hero breakdown={breakdown} />
 
-                <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-steel bg-steel sm:grid-cols-4">
-                  <Stat
-                    label="Collateral"
-                    value={usd(breakdown.position.totalCollateralUsd)}
-                  />
-                  <Stat
-                    label="Debt"
-                    value={usd(breakdown.position.totalDebtUsd)}
-                  />
-                  <Stat
-                    label="Liq. threshold"
-                    value={`${(breakdown.position.liquidationThreshold * 100).toFixed(1)}%`}
-                  />
-                  <Stat
-                    label="Health factor"
-                    value={
-                      breakdown.position.healthFactor != null
-                        ? breakdown.position.healthFactor.toFixed(3)
-                        : "∞"
-                    }
-                    className={healthColor(breakdown.position.healthFactor)}
-                  />
-                </div>
+                    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-steel bg-steel sm:grid-cols-4">
+                      <Stat
+                        label="Collateral"
+                        value={usd(breakdown.position.totalCollateralUsd)}
+                      />
+                      <Stat
+                        label="Debt"
+                        value={usd(breakdown.position.totalDebtUsd)}
+                      />
+                      <Stat
+                        label="Liq. threshold"
+                        value={`${(breakdown.position.liquidationThreshold * 100).toFixed(1)}%`}
+                      />
+                      <Stat
+                        label="Health factor"
+                        value={
+                          breakdown.position.healthFactor != null
+                            ? breakdown.position.healthFactor.toFixed(3)
+                            : "∞"
+                        }
+                        className={healthColor(breakdown.position.healthFactor)}
+                      />
+                    </div>
 
-                <CascadePanel breakdown={breakdown} />
-              </section>
-            )}
+                    <CascadePanel breakdown={breakdown} />
+                  </section>
+                )}
+            </>
+          )}
         </main>
       </div>
     </div>

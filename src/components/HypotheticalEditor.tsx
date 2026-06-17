@@ -8,6 +8,7 @@ import {
   type HypotheticalItem,
 } from "@/lib/aave/hypothetical";
 import { CascadePanel } from "@/components/CascadePanel";
+import { Hero } from "@/components/Hero";
 
 const usd = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -268,6 +269,9 @@ export function HypotheticalEditor({
           </div>
         )}
       </section>
+
+      {breakdown.position.totalCollateralUsd > 0 &&
+        breakdown.position.totalDebtUsd > 0 && <Hero breakdown={breakdown} />}
 
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-steel bg-steel sm:grid-cols-4">
         <Stat

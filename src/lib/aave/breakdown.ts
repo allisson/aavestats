@@ -1,8 +1,9 @@
-import { createPublicClient, http, getAddress, formatUnits } from "viem";
-import { getChain } from "@/lib/chains";
+import { getAddress, formatUnits } from "viem";
 import { dataProviderAbi, oracleAbi, poolAbi } from "./abi";
+import { aaveClient, type AaveClient } from "./client";
 import { readPosition, type Position } from "./position";
 import { applyEModeOverrides, reconcile } from "./positionMath";
+import { decodeReserveConfig, decodeUserReserve } from "./decode";
 
 /** One asset's contribution to a Position, priced with the Aave Oracle. */
 export type AssetPosition = {
@@ -44,17 +45,8 @@ export async function readBreakdown(
   chainId: number,
   rawAddress: string,
 ): Promise<PositionBreakdown> {
-  const cfg = getChain(chainId);
-  if (!cfg) throw new Error(`Unsupported chain: ${chainId}`);
   const user = getAddress(rawAddress);
-  const client = createPublicClient({
-    chain: cfg.chain,
-    // Pinned public endpoint (viem's chain default is unreliable for some
-    // chains). Bounded timeout so a dead RPC fails fast.
-    transport: http(cfg.rpc, {
-      timeout: 12_000,
-    }),
-  });
+  const { cfg, client } = aaveClient(chainId);
 
   const [position, tokens, eMode] = await Promise.all([
     readPosition(chainId, rawAddress),
@@ -124,59 +116,30 @@ export async function readBreakdown(
   const assets: AssetPosition[] = [];
 
   tokens.forEach((t, i) => {
-    const reserveCfg = perAsset[2 * i] as unknown as readonly [
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      boolean,
-      boolean,
-      boolean,
-      boolean,
-      boolean,
-    ];
-    const userData = perAsset[2 * i + 1] as unknown as readonly [
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      number,
-      boolean,
-    ];
-
-    const decimals = Number(reserveCfg[0]);
-    const liquidationThreshold = Number(reserveCfg[2]) / 10_000;
-    const liquidationBonus = Number(reserveCfg[3]) / 10_000 - 1; // 10700 -> 0.07
+    const rc = decodeReserveConfig(perAsset[2 * i]);
+    const ur = decodeUserReserve(perAsset[2 * i + 1]);
     const priceUsd = Number(prices[i]) / base;
 
-    const usageAsCollateral = userData[8];
-    const aTokenBalance = userData[0];
-    const debtRaw = userData[1] + userData[2]; // stable + variable
-
     const collateralAmount =
-      usageAsCollateral && aTokenBalance > 0n
-        ? Number(formatUnits(aTokenBalance, decimals))
+      ur.usageAsCollateral && ur.aTokenBalance > 0n
+        ? Number(formatUnits(ur.aTokenBalance, rc.decimals))
         : 0;
     const debtAmount =
-      debtRaw > 0n ? Number(formatUnits(debtRaw, decimals)) : 0;
+      ur.debt > 0n ? Number(formatUnits(ur.debt, rc.decimals)) : 0;
 
     if (collateralAmount === 0 && debtAmount === 0) return; // untouched reserve
 
     assets.push({
       symbol: t.symbol,
       asset: t.tokenAddress,
-      decimals,
+      decimals: rc.decimals,
       priceUsd,
       collateralAmount,
       collateralUsd: collateralAmount * priceUsd,
       debtAmount,
       debtUsd: debtAmount * priceUsd,
-      liquidationThreshold,
-      liquidationBonus,
+      liquidationThreshold: rc.liquidationThreshold,
+      liquidationBonus: rc.liquidationBonus,
     });
   });
 
@@ -200,7 +163,7 @@ export async function readBreakdown(
  * collateral bitmap, otherwise it keeps its base reserve value.
  */
 async function applyEMode(
-  client: ReturnType<typeof createPublicClient>,
+  client: AaveClient,
   pool: `0x${string}`,
   category: number,
   assets: AssetPosition[],

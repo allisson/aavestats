@@ -52,7 +52,13 @@ const amt = (n: number) =>
     maximumFractionDigits: n >= 1000 ? 2 : n >= 1 ? 4 : 6,
   });
 
-export function CascadePanel({ breakdown }: { breakdown: PositionBreakdown }) {
+export function CascadePanel({
+  breakdown,
+  hideAssets = false,
+}: {
+  breakdown: PositionBreakdown;
+  hideAssets?: boolean;
+}) {
   const hasDebt = breakdown.assets.some((a) => a.debtUsd > 0);
   const hasCollateral = breakdown.assets.some((a) => a.collateralUsd > 0);
   const distance = useMemo(() => distanceToLiquidation(breakdown), [breakdown]);
@@ -74,7 +80,7 @@ export function CascadePanel({ breakdown }: { breakdown: PositionBreakdown }) {
         )
       )}
 
-      <AssetsTable breakdown={breakdown} />
+      {!hideAssets && <AssetsTable breakdown={breakdown} />}
 
       {!hasDebt ? (
         <p className="text-mist">

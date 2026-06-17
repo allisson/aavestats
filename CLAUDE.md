@@ -75,14 +75,26 @@ field) — there are no RPC env vars (see ADR 0005).
 - `src/lib/aave/positionMath.ts` — pure, IO-free math (`reconcile`,
   `applyEModeOverrides`) split out of breakdown.ts so it is unit-testable.
 - `src/lib/simulation/cascade.ts` — the deterministic liquidation cascade engine.
-- `*.test.ts` (Vitest) — cover the cascade, liquidation price, reconcile, and the
-  E-Mode override. These pin the math; keep them green when touching the engine.
-- `src/lib/watchlist.ts` — localStorage persistence of watched addresses.
+- `src/lib/aave/catalog.ts` — reads a chain's full reserve catalog (every reserve's
+  config + Oracle price + E-Mode categories) in one batch; the prefetch a
+  Hypothetical Position editor runs once on open (ADR 0007).
+- `src/lib/aave/hypothetical.ts` — pure `buildHypotheticalBreakdown` (catalog +
+  user amounts → synthesized `PositionBreakdown`); reuses `applyEModeOverrides`.
+- `*.test.ts` (Vitest) — cover the cascade, liquidation price, reconcile, the
+  E-Mode override, and the hypothetical builder. These pin the math; keep them
+  green when touching the engine.
+- `src/lib/watchlist.ts` — localStorage persistence of watched addresses;
+  `src/lib/hypotheticals.ts` — same external-store shape for saved Hypothetical
+  Position **recipes** (chain + E-Mode + per-asset amounts, never prices).
 - `src/app/` — Next.js App Router UI; `actions.ts` has the client-side read
   helpers (`fetchBreakdown` for detail, `fetchSummary` for the lightweight list
-  badges) — plain viem calls that run in the browser, not server actions.
-- `src/components/Watchlist.tsx` — add form + persisted rows with health-factor
-  badges; `CascadePanel.tsx` — per-asset table + Scenario chart/sliders.
+  badges, `fetchCatalog` for the editor) — plain viem calls that run in the
+  browser, not server actions.
+- `src/components/Watchlist.tsx` — add form + persisted rows (watched addresses
+  and saved hypotheticals) with health-factor badges; `CascadePanel.tsx` —
+  per-asset table + Scenario chart/sliders (`hideAssets` when embedded in the
+  editor); `HypotheticalEditor.tsx` — amount-only editor that builds a synthesized
+  breakdown live and renders the same Scenario below.
 
 ## Status
 
@@ -108,6 +120,15 @@ running the full cascade at each step. Each slider shows that asset's
 **liquidation price** — the price it must reach, others flat, for HF to hit 1
 (`assetLiquidationPrice` for collateral falling, `debtLiquidationPrice` for debt
 rising).
+
+**Hypothetical Positions** let the user simulate holdings they do not have on Aave
+(ADR 0007): build from scratch (pick a chain, add assets from the real reserve
+list, type collateral/debt amounts) or **fork** a Watched Address ("Edit as
+hypothetical"). Only amounts are editable — every asset's price, threshold, bonus,
+and decimals are read on-chain; price movement stays the Scenario's job. The editor
+feeds a synthesized `PositionBreakdown` (`source: "hypothetical"`, `reconciles`
+true by construction) to the unchanged simulation engine. Saved positions persist
+as recipes and are re-priced live on open.
 
 Addresses are a persisted **watchlist** (localStorage): watch several at once,
 each row shows a live health-factor badge, click to open the full simulation.

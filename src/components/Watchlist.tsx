@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AAVE_CHAINS, getChain } from "@/lib/chains";
 import type { SummaryResult } from "@/app/actions";
 import { type WatchEntry, watchKey } from "@/lib/watchlist";
+import type { Hypothetical } from "@/lib/hypotheticals";
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
@@ -21,6 +22,11 @@ export function Watchlist({
   onAdd,
   onSelect,
   onRemove,
+  hypotheticals,
+  selectedHypotheticalId,
+  onNewHypothetical,
+  onSelectHypothetical,
+  onRemoveHypothetical,
 }: {
   entries: WatchEntry[];
   summaries: Record<string, SummaryResult>;
@@ -28,6 +34,11 @@ export function Watchlist({
   onAdd: (chainId: number, address: string) => void;
   onSelect: (entry: WatchEntry) => void;
   onRemove: (entry: WatchEntry) => void;
+  hypotheticals: Hypothetical[];
+  selectedHypotheticalId: string | null;
+  onNewHypothetical: (chainId: number) => void;
+  onSelectHypothetical: (id: string) => void;
+  onRemoveHypothetical: (id: string) => void;
 }) {
   const [chainId, setChainId] = useState(42161);
   const [address, setAddress] = useState("");
@@ -69,7 +80,59 @@ export function Watchlist({
         >
           Watch
         </button>
+        <button
+          type="button"
+          onClick={() => onNewHypothetical(chainId)}
+          className="w-full rounded-lg border border-steel px-4 py-2 text-sm text-bone transition-colors hover:bg-shelf"
+        >
+          + New hypothetical position
+        </button>
       </form>
+
+      {hypotheticals.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="eyebrow">Hypothetical positions</div>
+          <ul className="space-y-1.5">
+            {hypotheticals.map((h) => {
+              const selected = h.id === selectedHypotheticalId;
+              return (
+                <li
+                  key={h.id}
+                  className={`group flex items-center gap-2 rounded-lg border px-3 py-2.5 transition-colors ${
+                    selected
+                      ? "border-clear/50 bg-shelf"
+                      : "border-steel bg-deep/40 hover:bg-deep"
+                  }`}
+                >
+                  <button
+                    onClick={() => onSelectHypothetical(h.id)}
+                    className="flex min-w-0 flex-1 flex-col gap-1 text-left"
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm text-bone">
+                        {h.label || "Untitled"}
+                      </span>
+                      <span className="shrink-0 rounded-sm border border-steel px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-mist">
+                        hyp.
+                      </span>
+                    </span>
+                    <span className="eyebrow !tracking-wider">
+                      {getChain(h.chainId)?.label ?? h.chainId}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => onRemoveHypothetical(h.id)}
+                    aria-label={`Remove ${h.label || "hypothetical"}`}
+                    className="shrink-0 text-lg leading-none text-mist/50 opacity-0 transition-opacity hover:text-reef group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    ×
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {entries.length > 0 && (
         <ul className="space-y-1.5">

@@ -32,6 +32,12 @@ export type PositionBreakdown = {
    * positions too; a false value flags an unmodeled case and the UI warns.
    */
   reconciles: boolean;
+  /**
+   * "watched" — read from a Watched Address on-chain (the default when omitted).
+   * "hypothetical" — synthesized from user-supplied amounts (see ADR 0007); the
+   * aggregate reconciles by construction and the reconcile warning is suppressed.
+   */
+  source?: "watched" | "hypothetical";
 };
 
 export async function readBreakdown(
@@ -75,6 +81,7 @@ export async function readBreakdown(
       assets: [],
       eModeCategory: Number(eMode),
       reconciles: true,
+      source: "watched",
     };
   }
 

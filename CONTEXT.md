@@ -19,8 +19,18 @@ _Avoid_: HF (spell it out in prose), safety score
 
 **Position**:
 A borrower's combined set of supplied collateral and outstanding debt on Aave
-for a given account on a given network.
+for a given account on a given network. May be **real** (read from a Watched
+Address on-chain) or **Hypothetical** (user-supplied amounts). Both are priced
+and risk-evaluated by identical Aave Oracle + liquidation-threshold math.
 _Avoid_: loan, account, wallet
+
+**Hypothetical Position**:
+A Position whose collateral and debt amounts are supplied by the user rather than
+read from a Watched Address — it has no on-chain existence. It lets the user
+explore a Scenario for holdings they do not actually have on Aave. It is still
+priced by the Aave Oracle and evaluated by the same liquidation math (thresholds,
+bonuses, Close Factor, E-Mode) as a real Position.
+_Avoid_: wallet, simulated wallet (a Position is never called a wallet)
 
 **Collateral**:
 Assets a borrower has supplied to Aave that back their debt (e.g. WBTC).

@@ -179,6 +179,49 @@ export function Watchlist({
   );
 }
 
+const HEALTH_FILL = {
+  reef: "var(--color-reef)",
+  shoal: "var(--color-shoal)",
+  clear: "var(--color-clear)",
+} as const;
+
+function healthFill(hf: number | null): string {
+  if (hf == null || hf >= 1.5) return HEALTH_FILL.clear;
+  if (hf < 1.1) return HEALTH_FILL.reef;
+  return HEALTH_FILL.shoal;
+}
+
+/** A row-scale echo of the sounding gauge: depth = 1/HF above the waterline. */
+function DepthTick({ hf }: { hf: number | null }) {
+  const top = 2;
+  const bottom = 30;
+  const frac = hf == null ? 0 : Math.min(1 / hf, 1.12);
+  const y = Math.min(bottom + 4, top + frac * (bottom - top));
+  const color = healthFill(hf);
+  return (
+    <svg width={9} height={34} viewBox="0 0 9 34" aria-hidden="true">
+      <line
+        x1={4.5}
+        x2={4.5}
+        y1={top}
+        y2={bottom}
+        stroke="var(--color-steel)"
+        strokeWidth={1}
+      />
+      <line
+        x1={1}
+        x2={8}
+        y1={bottom}
+        y2={bottom}
+        stroke="var(--color-reef)"
+        strokeWidth={1}
+        strokeDasharray="2 2"
+      />
+      <circle cx={4.5} cy={y} r={2.5} fill={color} />
+    </svg>
+  );
+}
+
 function SummaryBadge({ state }: { state: SummaryResult | undefined }) {
   if (state === undefined)
     return <span className="font-mono text-sm text-mist/50">…</span>;
@@ -193,8 +236,11 @@ function SummaryBadge({ state }: { state: SummaryResult | undefined }) {
   if (totalDebtUsd === 0)
     return <span className="font-mono text-xs text-mist">no debt</span>;
   return (
-    <span className={`font-mono text-sm ${healthColor(healthFactor)}`}>
-      {healthFactor != null ? healthFactor.toFixed(2) : "∞"}
+    <span className="flex items-center gap-1.5">
+      <DepthTick hf={healthFactor} />
+      <span className={`font-mono text-sm ${healthColor(healthFactor)}`}>
+        {healthFactor != null ? healthFactor.toFixed(2) : "∞"}
+      </span>
     </span>
   );
 }

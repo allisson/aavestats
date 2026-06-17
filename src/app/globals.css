@@ -106,10 +106,18 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   animation: settle 0.5s ease-out 0.25s both;
 }
 
+/* The sounding gauge weight glides to its depth as the reading changes. */
+.gauge-marker {
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .well-up,
   .settle {
     animation: none;
+  }
+  .gauge-marker {
+    transition: none;
   }
 }
 

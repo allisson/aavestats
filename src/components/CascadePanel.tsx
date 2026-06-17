@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import type { PositionBreakdown } from "@/lib/aave/breakdown";
+import { SoundingGauge } from "./SoundingGauge";
 import {
   assetLiquidationPrice,
   bindingMoveAssets,
@@ -296,78 +297,93 @@ function DefaultScenario({
           Health factor as {subject} {verb}s together, running the full
           liquidation cascade at each step.
         </p>
-        <div className="h-56 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={sweep}
-              margin={{ top: 12, right: 16, bottom: 8, left: 0 }}
-            >
-              <XAxis
-                dataKey="movePct"
-                type="number"
-                domain={[0, maxPct]}
-                stroke={C.grid}
-                tick={{ fontSize: 12, fill: C.axis }}
-                tickFormatter={(v) => `${sign}${v}%`}
-              />
-              <YAxis
-                stroke={C.grid}
-                tick={{ fontSize: 12, fill: C.axis }}
-                domain={[0, "auto"]}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: C.panel,
-                  border: `1px solid ${C.grid}`,
-                  borderRadius: 8,
-                  color: "#e7eeec",
-                }}
-                labelStyle={{ color: C.axis }}
-                labelFormatter={(v) => `${subject} ${verb}s ${sign}${v}%`}
-                formatter={(v) => [v, "Health factor (pre-liquidation)"]}
-              />
-              {/* Shade the region where liquidation has begun. */}
-              <ReferenceArea
-                x1={triggerPct}
-                x2={maxPct}
-                fill={C.reef}
-                fillOpacity={0.08}
-              />
-              <ReferenceLine y={1} stroke={C.reef} strokeDasharray="4 4" />
-              <ReferenceLine
-                x={triggerPct}
-                stroke={C.reef}
-                strokeDasharray="2 3"
-                label={{
-                  value: "liquidation begins",
-                  position: "insideTopRight",
-                  fill: C.reef,
-                  fontSize: 11,
-                }}
-              />
-              <ReferenceLine
-                x={0}
-                stroke={C.grid}
-                label={{
-                  value: "today",
-                  position: "insideTopLeft",
-                  fill: C.now,
-                  fontSize: 11,
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="hf"
-                stroke={C.trace}
-                dot={false}
-                strokeWidth={2}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="flex items-stretch gap-4">
+          <GaugeReadout hf={result.healthFactorBefore} />
+          <div className="h-56 min-w-0 flex-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={sweep}
+                margin={{ top: 12, right: 16, bottom: 8, left: 0 }}
+              >
+                <XAxis
+                  dataKey="movePct"
+                  type="number"
+                  domain={[0, maxPct]}
+                  stroke={C.grid}
+                  tick={{ fontSize: 12, fill: C.axis }}
+                  tickFormatter={(v) => `${sign}${v}%`}
+                />
+                <YAxis
+                  stroke={C.grid}
+                  tick={{ fontSize: 12, fill: C.axis }}
+                  domain={[0, "auto"]}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: C.panel,
+                    border: `1px solid ${C.grid}`,
+                    borderRadius: 8,
+                    color: "#e7eeec",
+                  }}
+                  labelStyle={{ color: C.axis }}
+                  labelFormatter={(v) => `${subject} ${verb}s ${sign}${v}%`}
+                  formatter={(v) => [v, "Health factor (pre-liquidation)"]}
+                />
+                {/* Shade the region where liquidation has begun. */}
+                <ReferenceArea
+                  x1={triggerPct}
+                  x2={maxPct}
+                  fill={C.reef}
+                  fillOpacity={0.08}
+                />
+                <ReferenceLine y={1} stroke={C.reef} strokeDasharray="4 4" />
+                <ReferenceLine
+                  x={triggerPct}
+                  stroke={C.reef}
+                  strokeDasharray="2 3"
+                  label={{
+                    value: "liquidation begins",
+                    position: "insideTopRight",
+                    fill: C.reef,
+                    fontSize: 11,
+                  }}
+                />
+                <ReferenceLine
+                  x={0}
+                  stroke={C.grid}
+                  label={{
+                    value: "today",
+                    position: "insideTopLeft",
+                    fill: C.now,
+                    fontSize: 11,
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="hf"
+                  stroke={C.trace}
+                  dot={false}
+                  strokeWidth={2}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
       <CascadeOutcome result={result} />
+    </div>
+  );
+}
+
+/**
+ * The live sounding gauge beside the trajectory chart — the position weight
+ * drops toward the waterline as the crash-severity slider runs.
+ */
+function GaugeReadout({ hf }: { hf: number | null }) {
+  return (
+    <div className="hidden shrink-0 sm:block">
+      <SoundingGauge healthFactor={hf} height={224} />
     </div>
   );
 }

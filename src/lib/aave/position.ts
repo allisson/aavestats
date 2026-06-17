@@ -1,6 +1,6 @@
-import { createPublicClient, http, getAddress, formatUnits } from "viem";
-import { getChain } from "@/lib/chains";
+import { getAddress, formatUnits } from "viem";
 import { poolAbi } from "./abi";
+import { aaveClient } from "./client";
 
 /**
  * Aggregate snapshot of a Position, read from Aave v3's Pool.getUserAccountData.
@@ -26,18 +26,8 @@ export async function readPosition(
   chainId: number,
   rawAddress: string,
 ): Promise<Position> {
-  const cfg = getChain(chainId);
-  if (!cfg) throw new Error(`Unsupported chain: ${chainId}`);
-
   const address = getAddress(rawAddress); // checksums + validates, throws on bad input
-  const client = createPublicClient({
-    chain: cfg.chain,
-    // Pinned public endpoint (viem's chain default is unreliable for some
-    // chains). Bounded timeout so a dead RPC fails fast.
-    transport: http(cfg.rpc, {
-      timeout: 12_000,
-    }),
-  });
+  const { cfg, client } = aaveClient(chainId);
 
   const [coll, debt, , liqThr, ltv, hf] = await client.readContract({
     address: cfg.pool,

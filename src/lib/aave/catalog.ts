@@ -1,6 +1,6 @@
-import { createPublicClient, http } from "viem";
-import { getChain } from "@/lib/chains";
 import { dataProviderAbi, oracleAbi, poolAbi } from "./abi";
+import { decodeReserveConfig } from "./decode";
+import { aaveClient } from "./client";
 
 /**
  * One reserve's base (non-E-Mode) parameters and current Aave Oracle price. The
@@ -48,12 +48,7 @@ const EMODE_PROBE_IDS = [1, 2, 3, 4, 5, 6, 7, 8];
 export async function readReserveCatalog(
   chainId: number,
 ): Promise<ReserveCatalog> {
-  const cfg = getChain(chainId);
-  if (!cfg) throw new Error(`Unsupported chain: ${chainId}`);
-  const client = createPublicClient({
-    chain: cfg.chain,
-    transport: http(cfg.rpc, { timeout: 12_000 }),
-  });
+  const { cfg, client } = aaveClient(chainId);
 
   const [tokens, reservesList, baseUnit] = await Promise.all([
     client.readContract({
@@ -95,27 +90,16 @@ export async function readReserveCatalog(
 
   const base = Number(baseUnit);
   const reserves: CatalogReserve[] = tokens.map((t, i) => {
-    const c = configs[i] as unknown as readonly [
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      bigint,
-      boolean,
-      boolean,
-      boolean,
-      boolean,
-      boolean,
-    ];
+    const rc = decodeReserveConfig(configs[i]);
     return {
       symbol: t.symbol,
       asset: t.tokenAddress,
-      decimals: Number(c[0]),
+      decimals: rc.decimals,
       priceUsd: Number(prices[i]) / base,
-      liquidationThreshold: Number(c[2]) / 10_000,
-      liquidationBonus: Number(c[3]) / 10_000 - 1, // 10700 -> 0.07
-      usageAsCollateralEnabled: c[5],
-      borrowingEnabled: c[6],
+      liquidationThreshold: rc.liquidationThreshold,
+      liquidationBonus: rc.liquidationBonus,
+      usageAsCollateralEnabled: rc.usageAsCollateralEnabled,
+      borrowingEnabled: rc.borrowingEnabled,
     };
   });
 

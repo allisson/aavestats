@@ -18,6 +18,7 @@ import {
 } from "./actions";
 import { CascadePanel } from "@/components/CascadePanel";
 import { Hero } from "@/components/Hero";
+import { SoundingGauge } from "@/components/SoundingGauge";
 import { Watchlist } from "@/components/Watchlist";
 import {
   HypotheticalEditor,
@@ -398,13 +399,23 @@ function NoPositions({
 
 function EmptyState({ hasEntries }: { hasEntries: boolean }) {
   return (
-    <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-steel px-6 py-16 text-center">
-      <div className="font-mono text-3xl text-steel">≈≈≈</div>
-      <p className="mt-4 max-w-xs text-sm text-mist">
-        {hasEntries
-          ? "Select a watched address to take a sounding."
-          : "Add a watched address to take a sounding of its distance to liquidation."}
-      </p>
+    <div className="flex min-h-64 flex-col items-center justify-center gap-6 rounded-xl border border-dashed border-steel px-6 py-16 text-center sm:flex-row sm:gap-10 sm:text-left">
+      <div className="opacity-70">
+        <SoundingGauge healthFactor={1.62} height={200} />
+      </div>
+      <div className="max-w-xs">
+        <div className="eyebrow">How to read it</div>
+        <p className="mt-2 text-sm text-mist">
+          The gauge sounds a position&apos;s depth above the liquidation
+          waterline at <span className="font-mono text-reef">1.00</span>. The
+          deeper it hangs, the closer to liquidation.
+        </p>
+        <p className="mt-4 text-sm text-bone">
+          {hasEntries
+            ? "Select a watched address to take a sounding."
+            : "Add a watched address to take its first sounding."}
+        </p>
+      </div>
     </div>
   );
 }
